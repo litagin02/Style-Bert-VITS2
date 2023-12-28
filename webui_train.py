@@ -12,7 +12,7 @@ python = sys.executable
 
 def subprocess_wrapper(cmd):
     return subprocess.run(
-        cmd,
+        map(lambda x: str(x), cmd),
         stdout=sys.stdout,
         stderr=subprocess.PIPE,
         text=True,
@@ -65,7 +65,7 @@ def initialize(model_name, batch_size, epochs, bf16_run):
     return "Step 1: 初期設定が完了しました"
 
 
-def resample(model_name):
+def resample(model_name, num_processes: int):
     dataset_path, _, _, _, _ = get_path(model_name)
     in_dir = os.path.join(dataset_path, "raw")
     out_dir = os.path.join(dataset_path, "wavs")
@@ -79,6 +79,8 @@ def resample(model_name):
             out_dir,
             "--sr",
             "44100",
+            "--num_processes",
+            num_processes
         ]
     )
     if result.stderr:
@@ -116,15 +118,17 @@ def preprocess_text(model_name):
     return "Step 3: 書き起こしファイルの前処理が完了しました"
 
 
-def bert_gen(model_name):
+def bert_gen(model_name, num_processes: int):
     _, _, _, _, config_path = get_path(model_name)
-    result = subprocess_wrapper([python, "bert_gen.py", "--config", config_path])
+    result = subprocess_wrapper(
+        [python, "bert_gen.py", "--config", config_path, "--num_processes", num_processes]
+    )
     if result.stderr:
         return f"{result.stderr}"
     return "Step 4: BERT特徴ファイルの生成が完了しました"
 
 
-def style_gen(model_name, num_processes):
+def style_gen(model_name, num_processes: int):
     _, _, _, _, config_path = get_path(model_name)
     result = subprocess_wrapper(
         [
@@ -133,7 +137,7 @@ def style_gen(model_name, num_processes):
             "--config",
             config_path,
             "--num_processes",
-            str(num_processes),
+            num_processes,
         ]
     )
     if result.stderr:
@@ -210,6 +214,14 @@ if __name__ == "__main__":
         model_name = gr.Textbox(
             label="モデル名",
         )
+        num_processes = gr.Slider(
+            label="スレッドサイズ",
+            info="学習の各前処理の実行時のCPUスレッド数",
+            value=2,
+            minimum=1,
+            maximum=16,
+            step=1,
+        )
         info = gr.Textbox(label="状況")
         with gr.Row(variant="panel"):
             with gr.Column(variant="panel", min_width=160):
@@ -247,13 +259,6 @@ if __name__ == "__main__":
                 bert_gen_btn = gr.Button(value="実行", variant="primary")
             with gr.Column(variant="panel", min_width=160):
                 gr.Markdown(value="Step 5: スタイル特徴ファイルの生成")
-                num_processes = gr.Slider(
-                    label="プロセス数",
-                    value=4,
-                    minimum=1,
-                    maximum=16,
-                    step=1,
-                )
                 style_gen_btn = gr.Button(value="実行", variant="primary")
         with gr.Row(variant="panel"):
             with gr.Column():
@@ -265,9 +270,11 @@ if __name__ == "__main__":
             inputs=[model_name, batch_size, epochs, bf16_run],
             outputs=[info],
         )
-        resample_btn.click(resample, inputs=[model_name], outputs=[info])
+        resample_btn.click(resample, inputs=[model_name, num_processes], outputs=[info])
         preprocess_text_btn.click(preprocess_text, inputs=[model_name], outputs=[info])
-        bert_gen_btn.click(bert_gen, inputs=[model_name], outputs=[info])
+        bert_gen_btn.click(
+            bert_gen, inputs=[model_name, num_processes], outputs=[info]
+        )
         style_gen_btn.click(
             style_gen, inputs=[model_name, num_processes], outputs=[info]
         )
