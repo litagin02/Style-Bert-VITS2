@@ -28,4 +28,3 @@ tensorboard
 torch>=2.1
 transformers
 umap-learn
-portalocker
