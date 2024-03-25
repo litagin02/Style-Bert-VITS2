@@ -12,6 +12,54 @@ from style_bert_vits2.constants import Languages
 from style_bert_vits2.logging import logger
 from style_bert_vits2.utils.stdout_wrapper import SAFE_STDOUT
 
+from threading import Thread
+import queue
+import time
+# 使用可能なGPUインデックスを入れるキュー
+device_queue = queue.Queue()
+
+def transcribe_thread(
+    model, 
+    device_index, 
+    wav_file, 
+    output_file, 
+    model_name, 
+    language_id, 
+    initial_prompt, 
+    language, 
+    num_beams, 
+    no_repeat_ngram_size
+):
+
+    text = transcribe_with_faster_whisper(
+        model=model,
+        audio_file=wav_file,
+        initial_prompt=initial_prompt,
+        language=language,
+        num_beams=num_beams,
+        no_repeat_ngram_size=no_repeat_ngram_size,
+    )
+
+    with open(output_file, "a", encoding="utf-8") as f:
+        if lock_file(f):
+            f.write(f"{wav_file.name}|{model_name}|{language_id}|{text}\n")
+            unlock_file(f)
+
+    device_queue.put(device_index)
+
+import portalocker
+
+def lock_file(file_obj):
+    try:
+        # ファイルに排他ロックを設定する
+        portalocker.lock(file_obj, portalocker.LOCK_EX)
+        return True
+    except portalocker.LockException:
+        return False
+
+def unlock_file(file_obj):
+    # ファイルのロックを解除する
+    portalocker.unlock(file_obj)
 
 # faster-whisperは並列処理しても速度が向上しないので、単一モデルでループ処理する
 def transcribe_with_faster_whisper(
@@ -103,43 +151,38 @@ def transcribe_files_with_hf_whisper(
 
     return results
 
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model_name", type=str, required=True)
-    parser.add_argument(
-        "--initial_prompt",
-        type=str,
-        default="こんにちは。元気、ですかー？ふふっ、私は……ちゃんと元気だよ！",
-    )
-    parser.add_argument(
-        "--language", type=str, default="ja", choices=["ja", "en", "zh"]
-    )
-    parser.add_argument("--model", type=str, default="large-v3")
-    parser.add_argument("--device", type=str, default="cuda")
-    parser.add_argument("--compute_type", type=str, default="bfloat16")
-    parser.add_argument("--use_hf_whisper", action="store_true")
-    parser.add_argument("--batch_size", type=int, default=16)
-    parser.add_argument("--num_beams", type=int, default=1)
-    parser.add_argument("--no_repeat_ngram_size", type=int, default=10)
-    args = parser.parse_args()
+def main(
+    model_name:str, 
+    model:str="large-v3", 
+    compute_type:str="bfloat16", 
+    language:str="ja", 
+    initial_prompt:str="こんにちは。元気、ですかー？ふふっ、私は……ちゃんと元気だよ！", 
+    device:str="cuda", 
+    device_indexs:str="0", 
+    use_hf_whisper=True, 
+    batch_size:int=16, 
+    num_beams:int=1, 
+    no_repeat_ngram_size:int=10,
+):
 
     with open(os.path.join("configs", "paths.yml"), "r", encoding="utf-8") as f:
         path_config: dict[str, str] = yaml.safe_load(f.read())
         dataset_root = Path(path_config["dataset_root"])
 
-    model_name = str(args.model_name)
+    model_name = str(model_name)
 
     input_dir = dataset_root / model_name / "raw"
     output_file = dataset_root / model_name / "esd.list"
-    initial_prompt: str = args.initial_prompt
+    initial_prompt: str = initial_prompt
     initial_prompt = initial_prompt.strip('"')
-    language: str = args.language
-    device: str = args.device
-    compute_type: str = args.compute_type
-    batch_size: int = args.batch_size
-    num_beams: int = args.num_beams
-    no_repeat_ngram_size: int = args.no_repeat_ngram_size
+    language: str = language
+    device: str = device
+    # GPUインデックスリスト
+    device_indexs = [int(x) for x in device_indexs.split(',')]
+    compute_type: str = compute_type
+    batch_size: int = batch_size
+    num_beams: int = num_beams
+    no_repeat_ngram_size: int = no_repeat_ngram_size
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -163,12 +206,58 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"{language} is not supported.")
 
-    if not args.use_hf_whisper:
+    if not use_hf_whisper:
         from faster_whisper import WhisperModel
 
         logger.info(
-            f"Loading faster-whisper model ({args.model}) with compute_type={compute_type}"
+            f"Loading faster-whisper model ({model}) with compute_type={compute_type}"
         )
+
+        models = {}
+
+        # 使用するGPUの数だけモデルを作成する。
+        for device_index in device_indexs:
+            try:
+                model_object = WhisperModel(model, device=device, device_index=device_index, compute_type=compute_type)
+            except ValueError as e:
+                logger.warning(f"Failed to load model, so use `auto` compute_type: {e}")
+                model_object = WhisperModel(model, device=device, device_index=device_index)
+            models[device_index]=model_object
+            # 使用可能なモデルのキューを入れる
+            device_queue.put(device_index)
+
+        # マルチスレッド開始
+        threads = []
+        for wav_file in tqdm(wav_files):
+            while True:
+                # 使用可能なモデルが無ければループする。
+                if not device_queue.empty():
+                    device_index = device_queue.get()
+                    thread = Thread(target=transcribe_thread, args=(
+                        models[device_index], 
+                        device_index, 
+                        wav_file, 
+                        output_file, 
+                        model_name, 
+                        language_id, 
+                        initial_prompt, 
+                        language, 
+                        num_beams, 
+                        no_repeat_ngram_size
+                    ))
+                    thread.start()
+                    threads.append(thread)
+                    break
+                time.sleep(0.01)
+
+        for thread in threads:
+            thread.join()
+
+        # モデルの解放
+        for device_index in device_indexs:
+            models[device_index]=None
+
+        '''
         try:
             model = WhisperModel(args.model, device=device, compute_type=compute_type)
         except ValueError as e:
@@ -185,8 +274,9 @@ if __name__ == "__main__":
             )
             with open(output_file, "a", encoding="utf-8") as f:
                 f.write(f"{wav_file.name}|{model_name}|{language_id}|{text}\n")
+        '''
     else:
-        model_id = f"openai/whisper-{args.model}"
+        model_id = f"openai/whisper-{model}"
         logger.info(f"Loading HF Whisper model ({model_id})")
         pbar = tqdm(total=len(wav_files), file=SAFE_STDOUT)
         results = transcribe_files_with_hf_whisper(
@@ -203,5 +293,43 @@ if __name__ == "__main__":
         with open(output_file, "w", encoding="utf-8") as f:
             for wav_file, text in zip(wav_files, results):
                 f.write(f"{wav_file.name}|{model_name}|{language_id}|{text}\n")
+
+    return True, ""
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model_name", type=str, required=True)
+    parser.add_argument(
+        "--initial_prompt",
+        type=str,
+        default="こんにちは。元気、ですかー？ふふっ、私は……ちゃんと元気だよ！",
+    )
+    parser.add_argument(
+        "--language", type=str, default="ja", choices=["ja", "en", "zh"]
+    )
+    parser.add_argument("--model", type=str, default="large-v3")
+    parser.add_argument("--device", type=str, default="cuda")
+    # GPUインデックス追加
+    parser.add_argument("--device_indexs", type=str, default="0")
+    parser.add_argument("--compute_type", type=str, default="bfloat16")
+    parser.add_argument("--use_hf_whisper", action="store_true")
+    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--num_beams", type=int, default=1)
+    parser.add_argument("--no_repeat_ngram_size", type=int, default=10)
+    args = parser.parse_args()
+
+    main(
+        args.model_name, 
+        args.model, 
+        args.compute_type, 
+        args.language, 
+        args.initial_prompt, 
+        args.device, 
+        args.device_indexs, 
+        args.use_hf_whisper, 
+        args.batch_size, 
+        args.num_beams, 
+        args.no_repeat_ngram_size, 
+    )
 
     sys.exit(0)
