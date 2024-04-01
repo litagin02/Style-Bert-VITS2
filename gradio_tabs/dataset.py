@@ -41,62 +41,32 @@ def do_slice(
 
 def do_transcribe(
     model_name,
-    whisper_model,
+    model,
     compute_type,
     language,
     initial_prompt,
     device,
-    device_indexs,
+    device_indexes,
     use_hf_whisper,
     batch_size,
     num_beams,
+    no_repeat_ngram_size: int = 10,
 ):
     if model_name == "":
         return "Error: モデル名を入力してください。"
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model_name", type=str, required=True)
-    parser.add_argument(
-        "--initial_prompt",
-        type=str,
-        default="こんにちは。元気、ですかー？ふふっ、私は……ちゃんと元気だよ！",
-    )
-    parser.add_argument(
-        "--language", type=str, default="ja", choices=["ja", "en", "zh"]
-    )
-    parser.add_argument("--model", type=str, default="large-v3")
-    parser.add_argument("--device", type=str, default="cuda")
-    # GPUインデックス追加
-    parser.add_argument("--device_indexs", type=str, default="0")
-    parser.add_argument("--compute_type", type=str, default="bfloat16")
-    parser.add_argument("--use_hf_whisper", action="store_true")
-    parser.add_argument("--batch_size", type=int, default=16)
-    parser.add_argument("--num_beams", type=int, default=1)
-    parser.add_argument("--no_repeat_ngram_size", type=int, default=10)
-    args = parser.parse_args(
-        [
-        "--model_name", model_name, 
-        "--model", whisper_model, 
-        "--compute_type", compute_type, 
-        "--language", language, 
-        "--initial_prompt", initial_prompt, 
-        "--device", device, 
-        "--device_indexs", device_indexs 
-        ]
-    )
-
-    success, message = transcribe.main(
-        args.model_name, 
-        args.model, 
-        args.compute_type, 
-        args.language, 
-        args.initial_prompt, 
-        args.device, 
-        args.device_indexs, 
-        args.use_hf_whisper, 
-        args.batch_size, 
-        args.num_beams, 
-        args.no_repeat_ngram_size, 
+    success, message = transcribe.run(
+        model_name, 
+        model, 
+        compute_type, 
+        language, 
+        initial_prompt, 
+        device, 
+        device_indexes, 
+        use_hf_whisper, 
+        batch_size, 
+        num_beams, 
+        no_repeat_ngram_size, 
     )
     if not success:
         return f"Error: {message}. エラーメッセージが空の場合、何も問題がない可能性があるので、書き起こしファイルをチェックして問題なければ無視してください。"
@@ -105,12 +75,12 @@ def do_transcribe(
 import torch
 
 # 使用可能なGPUのインデックスリスト取得
-def get_gpu_indexs():
-    gpu_indexs = []
+def get_gpu_indexes():
+    gpu_indexes = []
     if torch.cuda.is_available():
         for i in range(torch.cuda.device_count()):
-            gpu_indexs.append(str(i))
-    return ','.join(gpu_indexs)
+            gpu_indexes.append(str(i))
+    return ','.join(gpu_indexes)
     '''
     cmd = [
         "transcribe.py",
@@ -253,9 +223,9 @@ def create_dataset_app() -> gr.Blocks:
                     visible=False,
                 )
                 device = gr.Radio(["cuda", "cpu"], label="デバイス", value="cuda")
-                device_indexs = gr.Textbox(
+                device_indexes = gr.Textbox(
                     label="使用GPUインデックス",
-                    value=get_gpu_indexs(),
+                    value=get_gpu_indexes(),
                     info="使用するGPUインデックスをカンマ区切りで指定、例文（0,1,2）",
                 )
                 language = gr.Dropdown(["ja", "en", "zh"], value="ja", label="言語")
@@ -295,7 +265,7 @@ def create_dataset_app() -> gr.Blocks:
                 language,
                 initial_prompt,
                 device,
-                device_indexs,
+                device_indexes,
                 use_hf_whisper,
                 batch_size,
                 num_beams,
@@ -309,7 +279,7 @@ def create_dataset_app() -> gr.Blocks:
                 gr.update(visible=not x),
             ),
             inputs=[use_hf_whisper],
-            outputs=[batch_size, compute_type, device, device_indexs],
+            outputs=[batch_size, compute_type, device],
         )
 
     return app

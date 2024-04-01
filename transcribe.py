@@ -151,14 +151,14 @@ def transcribe_files_with_hf_whisper(
 
     return results
 
-def main(
+def run(
     model_name:str, 
     model:str="large-v3", 
     compute_type:str="bfloat16", 
     language:str="ja", 
     initial_prompt:str="こんにちは。元気、ですかー？ふふっ、私は……ちゃんと元気だよ！", 
     device:str="cuda", 
-    device_indexs:str="0", 
+    device_indexes:str="0", 
     use_hf_whisper=True, 
     batch_size:int=16, 
     num_beams:int=1, 
@@ -178,7 +178,7 @@ def main(
     language: str = language
     device: str = device
     # GPUインデックスリスト
-    device_indexs = [int(x) for x in device_indexs.split(',')]
+    device_indexes = [int(x) for x in device_indexes.split(',')]
     compute_type: str = compute_type
     batch_size: int = batch_size
     num_beams: int = num_beams
@@ -216,7 +216,7 @@ def main(
         models = {}
 
         # 使用するGPUの数だけモデルを作成する。
-        for device_index in device_indexs:
+        for device_index in device_indexes:
             try:
                 model_object = WhisperModel(model, device=device, device_index=device_index, compute_type=compute_type)
             except ValueError as e:
@@ -254,7 +254,7 @@ def main(
             thread.join()
 
         # モデルの解放
-        for device_index in device_indexs:
+        for device_index in device_indexes:
             models[device_index]=None
 
         '''
@@ -310,7 +310,7 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, default="large-v3")
     parser.add_argument("--device", type=str, default="cuda")
     # GPUインデックス追加
-    parser.add_argument("--device_indexs", type=str, default="0")
+    parser.add_argument("--device_indexes", type=str, default="0")
     parser.add_argument("--compute_type", type=str, default="bfloat16")
     parser.add_argument("--use_hf_whisper", action="store_true")
     parser.add_argument("--batch_size", type=int, default=16)
@@ -318,14 +318,14 @@ if __name__ == "__main__":
     parser.add_argument("--no_repeat_ngram_size", type=int, default=10)
     args = parser.parse_args()
 
-    main(
+    run(
         args.model_name, 
         args.model, 
         args.compute_type, 
         args.language, 
         args.initial_prompt, 
         args.device, 
-        args.device_indexs, 
+        args.device_indexes, 
         args.use_hf_whisper, 
         args.batch_size, 
         args.num_beams, 
