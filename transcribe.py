@@ -42,7 +42,7 @@ def transcribe_thread(
 
     with open(output_file, "a", encoding="utf-8") as f:
         if lock_file(f):
-            f.write(f"{wav_file.name}|{model_name}|{language_id}|{text}\n")
+            f.write(f"{wav_file}|{model_name}|{language_id}|{text}\n")
             unlock_file(f)
 
     device_queue.put(device_index)
@@ -292,7 +292,7 @@ def run(
         )
         with open(output_file, "w", encoding="utf-8") as f:
             for wav_file, text in zip(wav_files, results):
-                f.write(f"{wav_file.name}|{model_name}|{language_id}|{text}\n")
+                f.write(f"{wav_file}|{model_name}|{language_id}|{text}\n")
 
     return True, ""
 
