@@ -21,8 +21,7 @@ RUN pip install --no-cache-dir -r $HOME/app/requirements.txt
 
 COPY --chown=user . $HOME/app
 
-RUN python initialize.py
-
 EXPOSE 5000
 
-CMD ["python", "server_fastapi.py"]
+# CMD ["python", "server_fastapi.py"]
+CMD ["python", "initialize.py"]

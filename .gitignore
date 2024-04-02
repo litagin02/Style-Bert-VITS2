@@ -6,6 +6,7 @@ venv/
 
 /*.yml
 !/default_config.yml
+!/compose.api.yml
 /bert/*/*.bin
 /bert/*/*.h5
 /bert/*/*.model

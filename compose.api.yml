@@ -1,0 +1,15 @@
+version: "3"
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "5000:5000"
+    volumes:
+    - ./data/bert:/bert
+    - ./data/slm:/slm
+    - ./data/pretrained:/pretrained
+    - ./data/pretrained_jp_extra:/pretrained_jp_extra
+    - ./data/model_assets:/model_assets
