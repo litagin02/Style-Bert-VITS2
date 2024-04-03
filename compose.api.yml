@@ -2,14 +2,26 @@ version: "3"
 
 services:
   api:
+    container_name: style-bert-vits2-api
     build:
       context: .
       dockerfile: Dockerfile.api
+      args:
+        - UID
+        - GID
+        - UNAME=user
+        - GNAME=user
     ports:
       - "5000:5000"
     volumes:
-    - ./data/bert:/bert
-    - ./data/slm:/slm
-    - ./data/pretrained:/pretrained
-    - ./data/pretrained_jp_extra:/pretrained_jp_extra
-    - ./data/model_assets:/model_assets
+    - ./bert:/bert
+    - ./slm:/slm
+    - ./pretrained:/pretrained
+    - ./pretrained_jp_extra:/pretrained_jp_extra
+    - ./model_assets:/model_assets
+volumes:
+  bert:
+  slm:
+  pretrained:
+  pretrained_jp_extra:
+  model_assets:

@@ -1,10 +1,12 @@
-# Hugging face spaces (CPU) でエディタ (server_editor.py) のデプロイ用
-
-# See https://huggingface.co/docs/hub/spaces-sdks-docker-first-demo
-
 FROM python:3.10
 
-RUN useradd -m -u 1000 user
+ARG UID
+ARG GID
+ARG UNAME
+ARG GNAME
+
+RUN groupadd -g ${GID} ${GNAME} -f && \
+    useradd -m -u ${UID} -g ${GID} ${UNAME}
 
 USER user
 
@@ -21,7 +23,8 @@ RUN pip install --no-cache-dir -r $HOME/app/requirements.txt
 
 COPY --chown=user . $HOME/app
 
+RUN python initialize.py
+
 EXPOSE 5000
 
-# CMD ["python", "server_fastapi.py"]
-CMD ["python", "initialize.py"]
+CMD ["python", "server_fastapi.py"]
