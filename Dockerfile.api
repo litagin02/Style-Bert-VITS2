@@ -23,7 +23,7 @@ RUN pip install --no-cache-dir -r $HOME/app/requirements.txt
 
 COPY --chown=user . $HOME/app
 
-RUN python initialize.py
+# RUN python initialize.py
 
 EXPOSE 5000
 
