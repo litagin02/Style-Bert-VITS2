@@ -24,3 +24,9 @@
 ; !/server_fastapi.py
 ; !/transforms.py
 ; !/utils.py
+
+bert/
+model_assets/
+pretrained_jp_extra/
+pretrained/
+slm/
