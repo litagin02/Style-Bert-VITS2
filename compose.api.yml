@@ -14,14 +14,8 @@ services:
     ports:
       - "5000:5000"
     volumes:
-    - ./bert:/bert
-    - ./slm:/slm
-    - ./pretrained:/pretrained
-    - ./pretrained_jp_extra:/pretrained_jp_extra
-    - ./model_assets:/model_assets
-volumes:
-  bert:
-  slm:
-  pretrained:
-  pretrained_jp_extra:
-  model_assets:
+    - ./bert:/home/user/app/bert
+    - ./slm:/home/user/app/slm
+    - ./pretrained:/home/user/app/pretrained
+    - ./pretrained_jp_extra:/home/user/app/pretrained_jp_extra
+    - ./model_assets:/home/user/app/model_assets
