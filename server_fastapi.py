@@ -101,7 +101,7 @@ if __name__ == "__main__":
         )
     app.logger = logger
 
-    @app.api_route("/voice", methods=["GET", "POST"], response_class=AudioResponse)
+    @app.api_route("/api/style-bert-vits2/synthesis", methods=["GET", "POST"], response_class=AudioResponse)
     async def voice(
         request: Request,
         text: str = Query(..., min_length=1, max_length=limit, description=f"セリフ"),
@@ -201,7 +201,7 @@ if __name__ == "__main__":
             wavfile.write(wavContent, sr, audio)
             return Response(content=wavContent.getvalue(), media_type="audio/wav")
 
-    @app.get("/models/info")
+    @app.get("/api/style-bert-vits2/models/info")
     def get_loaded_models_info():
         """ロードされたモデル情報の取得"""
 
@@ -217,14 +217,14 @@ if __name__ == "__main__":
             }
         return result
 
-    @app.post("/models/refresh")
+    @app.post("/api/style-bert-vits2/models/refresh")
     def refresh():
         """モデルをパスに追加/削除した際などに読み込ませる"""
         model_holder.refresh()
         load_models(model_holder)
         return get_loaded_models_info()
 
-    @app.get("/status")
+    @app.get("/api/style-bert-vits2/status")
     def get_status():
         """実行環境のステータスを取得"""
         cpu_percent = psutil.cpu_percent(interval=1)
@@ -260,7 +260,7 @@ if __name__ == "__main__":
             "gpu": gpuInfo,
         }
 
-    @app.get("/tools/get_audio", response_class=AudioResponse)
+    @app.get("/api/style-bert-vits2/tools/get_audio", response_class=AudioResponse)
     def get_audio(
         request: Request, path: str = Query(..., description="local wav path")
     ):
