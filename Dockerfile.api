@@ -17,15 +17,14 @@ ENV POETRY_VERSION=1.8.2
 WORKDIR $HOME/app
 
 RUN pip install --no-cache-dir -U pip \
-    && pip install --no-cache-dir poetry==${POETRY_VERSION} \
-    && poetry config virtualenvs.create false
+    && pip install --no-cache-dir poetry==${POETRY_VERSION}
 
 COPY --chown=user pyproject.toml $HOME/app/pyproject.toml
 COPY --chown=user poetry.lock $HOME/app/poetry.lock
-RUN poetry install --without dev
+RUN poetry install --without dev --no-root
 
 COPY --chown=user . $HOME/app
 
 EXPOSE 5000
 
-CMD ["python", "server_fastapi.py"]
+CMD ["poetry", "run", "python", "server_fastapi.py"]
