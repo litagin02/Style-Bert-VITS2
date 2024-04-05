@@ -3918,7 +3918,7 @@ files = [
 name = "safetensors"
 version = "0.4.2"
 description = ""
-category = "dev"
+category = "main"
 optional = false
 python-versions = ">=3.7"
 files = [
@@ -5321,4 +5321,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "3bedaf0547d1ccbaed078348a7fab8af827c712fcc3825de5095e22021ce7635"
+content-hash = "258afa24013fa115ae7a983aa23532c491615b3a39543973d60581a3a1e32fc7"
