@@ -8,6 +8,7 @@ packages = [{include = "style_bert_vits2"}]
 
 [tool.poetry.dependencies]
 python = "^3.10"
+fastapi = "^0.110.1"
 gputil = "^1.4.0"
 loguru = "^0.7.2"
 psutil = "^5.9.8"
