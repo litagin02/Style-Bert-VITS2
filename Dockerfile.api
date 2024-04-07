@@ -21,7 +21,8 @@ RUN pip install --no-cache-dir -U pip \
 
 COPY --chown=user pyproject.toml $HOME/app/pyproject.toml
 COPY --chown=user poetry.lock $HOME/app/poetry.lock
-RUN poetry install --without dev --no-root
+# RUN poetry install --without dev --no-root
+RUN poetry Install --no-root
 
 COPY --chown=user . $HOME/app
 
