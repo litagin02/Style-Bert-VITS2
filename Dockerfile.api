@@ -1,4 +1,5 @@
-FROM python:3.10
+# CUDA 12.1.1 (CUDNN8 Runtime Ubuntu 20.04) をベースイメージとして利用
+FROM nvcr.io/nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu20.04
 
 ARG UID
 ARG GID
@@ -12,20 +13,36 @@ USER user
 
 ENV HOME=/home/user \
     PATH=/home/user/.local/bin:$PATH
-ENV POETRY_VERSION=1.8.2
 
 WORKDIR $HOME/app
 
-RUN pip install --no-cache-dir -U pip \
-    && pip install --no-cache-dir poetry==${POETRY_VERSION}
+# タイムゾーンを東京に設定
+ENV TZ=Asia/Tokyo
 
-COPY --chown=user pyproject.toml $HOME/app/pyproject.toml
-COPY --chown=user poetry.lock $HOME/app/poetry.lock
-# RUN poetry install --without dev --no-root
-RUN poetry Install --no-root
+# apt-get に対話的に設定を確認されないための設定
+ENV DEBIAN_FRONTEND=noninteractive
+
+# デッドスネークスPPAを追加し、Python 3.11をインストール
+RUN apt-get update && apt-get install -y software-properties-common \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y python3.11 python3.11-venv python3.11-dev python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# curlをインストール
+RUN apt-get update && apt-get install -y curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python 3.11用のpipを独立してインストール
+RUN curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py \
+    && python3.11 get-pip.py \
+    && rm get-pip.py
+
+COPY --chown=user requirements.txt $HOME/app/requirements.txt
+RUN python3.11 -m pip install -r requirements.txt
+RUN python3.11 -m pip install torch==2.1.2 torchvision==0.16.2 torchaudio==2.1.2 --index-url https://download.pytorch.org/whl/cu121
 
 COPY --chown=user . $HOME/app
 
 EXPOSE 5000
 
-CMD ["poetry", "run", "python", "server_fastapi.py"]
+CMD ["python3.11", "server_fastapi.py"]
