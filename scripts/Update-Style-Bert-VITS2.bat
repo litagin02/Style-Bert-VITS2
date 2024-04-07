@@ -1,47 +1,62 @@
 chcp 65001 > NUL
 @echo off
 
-pushd %~dp0
-set PS_CMD=PowerShell -Version 5.1 -ExecutionPolicy Bypass
+@REM エラーコードを遅延評価するために設定
+setlocal enabledelayedexpansion
 
-set CURL_CMD=C:\Windows\System32\curl.exe
-if not exist %CURL_CMD% (
-	echo [ERROR] %CURL_CMD% が見つかりません。
-	pause & popd & exit /b 1
+pushd %~dp0
+
+
+pushd Style-Bert-VITS2
+
+echo --------------------------------------------------
+echo Checking Git Installation...
+echo --------------------------------------------------
+git --version
+if !errorlevel! neq 0 (
+	echo --------------------------------------------------
+	echo Global Git is not installed, so use PortableGit.
+	echo Setting up PATH...
+	echo --------------------------------------------------
+	echo Executing: set "PATH=%~dp0lib\PortableGit\bin;%PATH%"
+	set "PATH=%~dp0lib\PortableGit\bin;%PATH%"
+
+	echo --------------------------------------------------
+	echo Checking Git Installation...
+	echo --------------------------------------------------
+	echo Executing: git --version
+	git --version
+	if !errorlevel! neq 0 ( pause & popd & exit /b !errorlevel! )
 )
 
-@REM Style-Bert-VITS2.zip をGitHubのmasterの最新のものをダウンロード
-%CURL_CMD% -Lo Style-Bert-VITS2.zip^
-	https://github.com/litagin02/Style-Bert-VITS2/archive/refs/heads/master.zip
-if %errorlevel% neq 0 ( pause & popd & exit /b %errorlevel% )
-
-@REM Style-Bert-VITS2.zip を解凍（フォルダ名前がBert-VITS2-masterになる）
-%PS_CMD% Expand-Archive -Path Style-Bert-VITS2.zip -DestinationPath . -Force
-if %errorlevel% neq 0 ( pause & popd & exit /b %errorlevel% )
-
-@REM 元のzipを削除
-del Style-Bert-VITS2.zip
-if %errorlevel% neq 0 ( pause & popd & exit /b %errorlevel% )
-
-@REM Bert-VITS2-masterの中身をStyle-Bert-VITS2に上書き移動
-xcopy /QSY .\Style-Bert-VITS2-master\ .\Style-Bert-VITS2\
-rmdir /s /q Style-Bert-VITS2-master
-if %errorlevel% neq 0 ( pause & popd & exit /b %errorlevel% )
+echo --------------------------------------------------
+echo Git pull...
+echo --------------------------------------------------
+git pull
+if !errorlevel! neq 0 ( pause & popd & exit /b !errorlevel! )
 
 @REM 仮想環境のpip requirements.txtを更新
 
-echo call .\Style-Bert-VITS2\scripts\activate.bat
-call .\Style-Bert-VITS2\venv\Scripts\activate.bat
-if %errorlevel% neq 0 ( pause & popd & exit /b %errorlevel% )
+echo --------------------------------------------------
+echo Activating virtual environment...
+echo --------------------------------------------------
+echo Executing: call ".\venv\Scripts\activate.bat"
+call ".\venv\Scripts\activate.bat"
+if !errorlevel! neq 0 ( pause & popd & exit /b !errorlevel! )
 
-pip install -U -r Style-Bert-VITS2\requirements.txt
-if %errorlevel% neq 0 ( pause & popd & exit /b %errorlevel% )
+echo --------------------------------------------------
+echo Updating dependencies...
+echo --------------------------------------------------
+echo Executing: pip install -U -r requirements.txt
+pip install -U -r requirements.txt
+if !errorlevel! neq 0 ( pause & popd & exit /b !errorlevel! )
 
-echo Update completed. Running Style-Bert-VITS2 Editor...
-
-@REM Style-Bert-VITS2 Editorを起動
-python server_editor.py --inbrowser
+echo ----------------------------------------
+echo Update completed.
+echo ----------------------------------------
 
 pause
+
+popd
 
 popd

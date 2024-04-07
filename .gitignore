@@ -1,8 +1,10 @@
-.vscode/
-
 __pycache__/
 venv/
+.venv/
+dist/
+.coverage
 .ipynb_checkpoints/
+.ruff_cache/
 
 /*.yml
 !/default_config.yml
@@ -22,6 +24,9 @@ venv/
 /slm/*/*.bin
 
 /scripts/test/
+/scripts/lib/
+/scripts/Style-Bert-VITS2/
+/scripts/sbv2/
 *.zip
 *.csv
 *.bak

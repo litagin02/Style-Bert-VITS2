@@ -3,7 +3,7 @@ cn2an
 faster-whisper==0.10.1
 g2p_en
 GPUtil
-gradio
+gradio==4.23.0
 jieba
 langid
 librosa==0.9.2
@@ -14,16 +14,17 @@ numba
 numpy
 psutil
 pyannote.audio>=3.1.0
+pydantic>=2.0
 pyloudnorm
 # pyopenjtalk-prebuilt  # Should be manually uninstalled
 pyopenjtalk-dict
 pypinyin
-# pyworld  # Not supported on Windows without Cython...
+pyworld-prebuilt
 PyYAML
 requests
 safetensors
 scipy
 tensorboard
-torch>=2.1,<2.2
+torch>=2.1
 transformers
 umap-learn

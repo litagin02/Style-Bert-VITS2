@@ -1,72 +1,130 @@
 chcp 65001 > NUL
 @echo off
 
-@REM https://github.com/Zuntan03/EasyBertVits2 より引用・改変
+@REM エラーコードを遅延評価するために設定
+setlocal enabledelayedexpansion
 
-pushd %~dp0
+@REM PowerShellのコマンド
 set PS_CMD=PowerShell -Version 5.1 -ExecutionPolicy Bypass
 
-set CURL_CMD=C:\Windows\System32\curl.exe
-if not exist %CURL_CMD% (
-	echo [ERROR] %CURL_CMD% が見つかりません。
-	pause & popd & exit /b 1
-)
+@REM PortableGitのURLと保存先
+set DL_URL=https://github.com/git-for-windows/git/releases/download/v2.44.0.windows.1/PortableGit-2.44.0-64-bit.7z.exe
+set DL_DST=%~dp0lib\PortableGit-2.44.0-64-bit.7z.exe
+
+@REM Style-Bert-VITS2のリポジトリURL
+set REPO_URL=https://github.com/litagin02/Style-Bert-VITS2
+
+@REM カレントディレクトリをbatファイルのディレクトリに変更
+pushd %~dp0
 
 @REM lib フォルダがなければ作成
 if not exist lib\ ( mkdir lib )
 
-@REM Style-Bert-VITS2.zip をGitHubのmasterの最新のものをダウンロード
-%CURL_CMD% -Lo Style-Bert-VITS2.zip^
-	https://github.com/litagin02/Style-Bert-VITS2/archive/refs/heads/master.zip
-if %errorlevel% neq 0 ( pause & popd & exit /b %errorlevel% )
+echo --------------------------------------------------
+echo PS_CMD: %PS_CMD%
+echo DL_URL: %DL_URL%
+echo DL_DST: %DL_DST%
+echo REPO_URL: %REPO_URL%
+echo --------------------------------------------------
+echo.
+echo --------------------------------------------------
+echo Checking Git Installation...
+echo --------------------------------------------------
+echo Executing: git --version
+git --version
+if !errorlevel! neq 0 (
+	echo --------------------------------------------------
+	echo Git is not installed, so download and use PortableGit.
+	echo Downloading PortableGit...
+	echo --------------------------------------------------
+	echo Executing: curl -L %DL_URL% -o "%DL_DST%"
+	curl -L %DL_URL% -o "%DL_DST%"
+	if !errorlevel! neq 0 ( pause & popd & exit /b !errorlevel! )
 
-@REM Style-Bert-VITS2.zip を解凍（フォルダ名前がBert-VITS2-masterになる）
-%PS_CMD% Expand-Archive -Path Style-Bert-VITS2.zip -DestinationPath . -Force
-if %errorlevel% neq 0 ( pause & popd & exit /b %errorlevel% )
+	echo --------------------------------------------------
+	echo Extracting PortableGit...
+	echo --------------------------------------------------
+	echo Executing: "%DL_DST%" -y
+	"%DL_DST%" -y
+	if !errorlevel! neq 0 ( pause & popd & exit /b !errorlevel! )
 
-@REM 元のzipを削除
-del Style-Bert-VITS2.zip
-if %errorlevel% neq 0 ( pause & popd & exit /b %errorlevel% )
+	echo --------------------------------------------------
+	echo Removing %DL_DST%...
+	echo --------------------------------------------------
+	echo Executing: del "%DL_DST%"
+	del "%DL_DST%"
+	if !errorlevel! neq 0 ( pause & popd & exit /b !errorlevel! )
 
-@REM Bert-VITS2-masterの中身をStyle-Bert-VITS2に上書き移動
-xcopy /QSY .\Style-Bert-VITS2-master\ .\Style-Bert-VITS2\
-rmdir /s /q Style-Bert-VITS2-master
+	@REM Gitコマンドのパスを設定
+	echo --------------------------------------------------
+	echo Setting up PATH...
+	echo --------------------------------------------------
+	echo Executing: set "PATH=%~dp0lib\PortableGit\bin;%PATH%"
+	set "PATH=%~dp0lib\PortableGit\bin;%PATH%"
+	if !errorlevel! neq 0 ( pause & popd & exit /b !errorlevel! )
 
-echo ----------------------------------------
-echo Setup Python and Virtual Environment
-echo ----------------------------------------
+	echo --------------------------------------------------
+	echo Checking Git Installation...
+	echo --------------------------------------------------
+	echo Executing: git --version
+	git --version
+	if !errorlevel! neq 0 ( pause & popd & exit /b !errorlevel! )
+)
 
-@REM Pythonと仮想環境のセットアップを呼び出す（仮想環境が有効化されて戻ってくる）
-call Style-Bert-VITS2\scripts\Setup-Python.bat ..\..\lib\python ..\venv
-if %errorlevel% neq 0 ( popd & exit /b %errorlevel% )
+echo --------------------------------------------------
+echo Cloning repository...
+echo --------------------------------------------------
+echo Executing: git clone %REPO_URL%
+git clone %REPO_URL%
+if !errorlevel! neq 0 ( pause & popd & exit /b !errorlevel! )
 
-@REM 依存関係インストール
-pip install torch==2.1.2 torchvision==0.16.2 torchaudio==2.1.2 --index-url https://download.pytorch.org/whl/cu118
-if %errorlevel% neq 0 ( pause & popd & exit /b %errorlevel% )
-
-pip install -r Style-Bert-VITS2\requirements.txt
-if %errorlevel% neq 0 ( pause & popd & exit /b %errorlevel% )
-
-echo ----------------------------------------
-echo Environment setup is complete. Start downloading the model.
-echo ----------------------------------------
+@REM Pythonのセットアップ
+echo --------------------------------------------------
+echo Setting up Python environment...
+echo --------------------------------------------------
+echo Executing: call Setup-Python.bat ".\lib\python" ".\Style-Bert-VITS2\venv"
+call Setup-Python.bat ".\lib\python" ".\Style-Bert-VITS2\venv"
+if !errorlevel! neq 0 ( popd & exit /b !errorlevel! )
 
 @REM Style-Bert-VITS2フォルダに移動
 pushd Style-Bert-VITS2
 
-@REM 初期化（必要なモデルのダウンロード）
+echo --------------------------------------------------
+echo Activating the virtual environment...
+echo --------------------------------------------------
+echo Executing: call ".\venv\Scripts\activate.bat"
+call ".\venv\Scripts\activate.bat"
+if !errorlevel! neq 0 ( popd & exit /b !errorlevel! )
+
+echo --------------------------------------------------
+echo Installing PyTorch...
+echo --------------------------------------------------
+echo Executing: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+if !errorlevel! neq 0 ( pause & popd & exit /b !errorlevel! )
+
+echo --------------------------------------------------
+echo Installing other dependencies...
+echo --------------------------------------------------
+echo Executing: pip install -r requirements.txt
+pip install -r requirements.txt
+if !errorlevel! neq 0 ( pause & popd & exit /b !errorlevel! )
+
+echo ----------------------------------------
+echo Environment setup is complete. Start downloading the model.
+echo ----------------------------------------
+echo Executing: python initialize.py
 python initialize.py
 
 echo ----------------------------------------
 echo Model download is complete. Start Style-Bert-VITS2 Editor.
 echo ----------------------------------------
-
-@REM エディターの起動
+echo Executing: python server_editor.py --inbrowser
 python server_editor.py --inbrowser
-
 pause
 
 popd
 
 popd
 
+endlocal

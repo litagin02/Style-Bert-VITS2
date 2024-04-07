@@ -1,0 +1,6 @@
+# Dockerfile.api用の.dockerignore
+bert/
+model_assets/
+pretrained_jp_extra/
+pretrained/
+slm/
