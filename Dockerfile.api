@@ -9,13 +9,6 @@ ARG GNAME
 RUN groupadd -g ${GID} ${GNAME} -f && \
     useradd -m -u ${UID} -g ${GID} ${UNAME}
 
-USER user
-
-ENV HOME=/home/user \
-    PATH=/home/user/.local/bin:$PATH
-
-WORKDIR $HOME/app
-
 # タイムゾーンを東京に設定
 ENV TZ=Asia/Tokyo
 
@@ -36,6 +29,13 @@ RUN apt-get update && apt-get install -y curl \
 RUN curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py \
     && python3.11 get-pip.py \
     && rm get-pip.py
+
+USER user
+
+ENV HOME=/home/user \
+    PATH=/home/user/.local/bin:$PATH
+
+WORKDIR $HOME/app
 
 COPY --chown=user requirements.txt $HOME/app/requirements.txt
 RUN python3.11 -m pip install -r requirements.txt

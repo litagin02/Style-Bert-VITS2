@@ -19,3 +19,8 @@ services:
     - ./pretrained:/home/user/app/pretrained
     - ./pretrained_jp_extra:/home/user/app/pretrained_jp_extra
     - ./model_assets:/home/user/app/model_assets
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
