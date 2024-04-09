@@ -3,6 +3,8 @@ import gradio as gr
 from style_bert_vits2.logging import logger
 from style_bert_vits2.utils.subprocess import run_script_with_log
 
+import argparse
+import transcribe
 
 def do_slice(
     model_name: str,
@@ -39,18 +41,34 @@ def do_slice(
 
 def do_transcribe(
     model_name,
-    whisper_model,
+    model,
     compute_type,
     language,
     initial_prompt,
     device,
+    device_indexes,
     use_hf_whisper,
     batch_size,
     num_beams,
+    no_repeat_ngram_size: int = 10,
 ):
     if model_name == "":
         return "Error: モデル名を入力してください。"
 
+    success, message = transcribe.run(
+        model_name, 
+        model, 
+        compute_type, 
+        language, 
+        initial_prompt, 
+        device, 
+        device_indexes, 
+        use_hf_whisper, 
+        batch_size, 
+        num_beams, 
+        no_repeat_ngram_size, 
+    )
+    '''
     cmd = [
         "transcribe.py",
         "--model_name",
@@ -72,9 +90,19 @@ def do_transcribe(
         cmd.append("--use_hf_whisper")
         cmd.extend(["--batch_size", str(batch_size)])
     success, message = run_script_with_log(cmd)
+    '''
     if not success:
         return f"Error: {message}. エラーメッセージが空の場合、何も問題がない可能性があるので、書き起こしファイルをチェックして問題なければ無視してください。"
 
+import torch
+
+# 使用可能なGPUのインデックスリスト取得
+def get_gpu_indexes():
+    gpu_indexes = []
+    if torch.cuda.is_available():
+        for i in range(torch.cuda.device_count()):
+            gpu_indexes.append(str(i))
+    return ','.join(gpu_indexes)
 
 how_to_md = """
 Style-Bert-VITS2の学習用データセットを作成するためのツールです。以下の2つからなります。
@@ -192,6 +220,11 @@ def create_dataset_app() -> gr.Blocks:
                     visible=False,
                 )
                 device = gr.Radio(["cuda", "cpu"], label="デバイス", value="cuda")
+                device_indexes = gr.Textbox(
+                    label="使用GPUインデックス",
+                    value=get_gpu_indexes(),
+                    info="使用するGPUインデックスをカンマ区切りで指定、例文（0,1,2）",
+                )
                 language = gr.Dropdown(["ja", "en", "zh"], value="ja", label="言語")
                 initial_prompt = gr.Textbox(
                     label="初期プロンプト",
@@ -229,6 +262,7 @@ def create_dataset_app() -> gr.Blocks:
                 language,
                 initial_prompt,
                 device,
+                device_indexes,
                 use_hf_whisper,
                 batch_size,
                 num_beams,

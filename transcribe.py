@@ -12,6 +12,54 @@ from style_bert_vits2.constants import Languages
 from style_bert_vits2.logging import logger
 from style_bert_vits2.utils.stdout_wrapper import SAFE_STDOUT
 
+from threading import Thread
+import queue
+import time
+# 使用可能なGPUインデックスを入れるキュー
+device_queue = queue.Queue()
+
+def transcribe_thread(
+    model, 
+    device_index, 
+    wav_file, 
+    output_file, 
+    model_name, 
+    language_id, 
+    initial_prompt, 
+    language, 
+    num_beams, 
+    no_repeat_ngram_size
+):
+
+    text = transcribe_with_faster_whisper(
+        model=model,
+        audio_file=wav_file,
+        initial_prompt=initial_prompt,
+        language=language,
+        num_beams=num_beams,
+        no_repeat_ngram_size=no_repeat_ngram_size,
+    )
+
+    with open(output_file, "a", encoding="utf-8") as f:
+        if lock_file(f):
+            f.write(f"{wav_file.name}|{model_name}|{language_id}|{text}\n")
+            unlock_file(f)
+
+    device_queue.put(device_index)
+
+import portalocker
+
+def lock_file(file_obj):
+    try:
+        # ファイルに排他ロックを設定する
+        portalocker.lock(file_obj, portalocker.LOCK_EX)
+        return True
+    except portalocker.LockException:
+        return False
+
+def unlock_file(file_obj):
+    # ファイルのロックを解除する
+    portalocker.unlock(file_obj)
 
 # faster-whisperは並列処理しても速度が向上しないので、単一モデルでループ処理する
 def transcribe_with_faster_whisper(
@@ -103,6 +151,150 @@ def transcribe_files_with_hf_whisper(
 
     return results
 
+def run(
+    model_name:str, 
+    model:str="large-v3", 
+    compute_type:str="bfloat16", 
+    language:str="ja", 
+    initial_prompt:str="こんにちは。元気、ですかー？ふふっ、私は……ちゃんと元気だよ！", 
+    device:str="cuda", 
+    device_indexes:str="0", 
+    use_hf_whisper=True, 
+    batch_size:int=16, 
+    num_beams:int=1, 
+    no_repeat_ngram_size:int=10,
+):
+
+    with open(os.path.join("configs", "paths.yml"), "r", encoding="utf-8") as f:
+        path_config: dict[str, str] = yaml.safe_load(f.read())
+        dataset_root = Path(path_config["dataset_root"])
+
+    model_name = str(model_name)
+
+    input_dir = dataset_root / model_name / "raw"
+    output_file = dataset_root / model_name / "esd.list"
+    initial_prompt: str = initial_prompt
+    initial_prompt = initial_prompt.strip('"')
+    language: str = language
+    device: str = device
+    # GPUインデックスリスト
+    device_indexes = [int(x) for x in device_indexes.split(',')]
+    compute_type: str = compute_type
+    batch_size: int = batch_size
+    num_beams: int = num_beams
+    no_repeat_ngram_size: int = no_repeat_ngram_size
+
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+
+    wav_files = [f for f in input_dir.rglob("*.wav") if f.is_file()]
+    wav_files = sorted(wav_files, key=lambda x: x.name)
+
+    if output_file.exists():
+        logger.warning(f"{output_file} exists, backing up to {output_file}.bak")
+        backup_path = output_file.with_name(output_file.name + ".bak")
+        if backup_path.exists():
+            logger.warning(f"{output_file}.bak exists, deleting...")
+            backup_path.unlink()
+        output_file.rename(backup_path)
+
+    if language == "ja":
+        language_id = Languages.JP.value
+    elif language == "en":
+        language_id = Languages.EN.value
+    elif language == "zh":
+        language_id = Languages.ZH.value
+    else:
+        raise ValueError(f"{language} is not supported.")
+
+    if not use_hf_whisper:
+        from faster_whisper import WhisperModel
+
+        logger.info(
+            f"Loading faster-whisper model ({model}) with compute_type={compute_type}"
+        )
+
+        models = {}
+
+        # 使用するGPUの数だけモデルを作成する。
+        for device_index in device_indexes:
+            try:
+                model_object = WhisperModel(model, device=device, device_index=device_index, compute_type=compute_type)
+            except ValueError as e:
+                logger.warning(f"Failed to load model, so use `auto` compute_type: {e}")
+                model_object = WhisperModel(model, device=device, device_index=device_index)
+            models[device_index]=model_object
+            # 使用可能なモデルのキューを入れる
+            device_queue.put(device_index)
+
+        # マルチスレッド開始
+        threads = []
+        for wav_file in tqdm(wav_files):
+            while True:
+                # 使用可能なモデルが無ければループする。
+                if not device_queue.empty():
+                    device_index = device_queue.get()
+                    thread = Thread(target=transcribe_thread, args=(
+                        models[device_index], 
+                        device_index, 
+                        wav_file, 
+                        output_file, 
+                        model_name, 
+                        language_id, 
+                        initial_prompt, 
+                        language, 
+                        num_beams, 
+                        no_repeat_ngram_size
+                    ))
+                    thread.start()
+                    threads.append(thread)
+                    break
+                time.sleep(0.01)
+
+        for thread in threads:
+            thread.join()
+
+        # モデルの解放
+        for device_index in device_indexes:
+            models[device_index]=None
+
+        '''
+        try:
+            model = WhisperModel(args.model, device=device, compute_type=compute_type)
+        except ValueError as e:
+            logger.warning(f"Failed to load model, so use `auto` compute_type: {e}")
+            model = WhisperModel(args.model, device=device)
+        for wav_file in tqdm(wav_files, file=SAFE_STDOUT):
+            text = transcribe_with_faster_whisper(
+                model=model,
+                audio_file=wav_file,
+                initial_prompt=initial_prompt,
+                language=language,
+                num_beams=num_beams,
+                no_repeat_ngram_size=no_repeat_ngram_size,
+            )
+            with open(output_file, "a", encoding="utf-8") as f:
+                f.write(f"{wav_file.name}|{model_name}|{language_id}|{text}\n")
+        '''
+    else:
+        model_id = f"openai/whisper-{model}"
+        logger.info(f"Loading HF Whisper model ({model_id})")
+        pbar = tqdm(total=len(wav_files), file=SAFE_STDOUT)
+        results = transcribe_files_with_hf_whisper(
+            audio_files=wav_files,
+            model_id=model_id,
+            initial_prompt=initial_prompt,
+            language=language,
+            batch_size=batch_size,
+            num_beams=num_beams,
+            no_repeat_ngram_size=no_repeat_ngram_size,
+            device=device,
+            pbar=pbar,
+        )
+        with open(output_file, "w", encoding="utf-8") as f:
+            for wav_file, text in zip(wav_files, results):
+                f.write(f"{wav_file.name}|{model_name}|{language_id}|{text}\n")
+
+    return True, ""
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -124,6 +316,23 @@ if __name__ == "__main__":
     parser.add_argument("--no_repeat_ngram_size", type=int, default=10)
     args = parser.parse_args()
 
+    run(
+        args.model_name, 
+        args.model, 
+        args.compute_type, 
+        args.language, 
+        args.initial_prompt, 
+        args.device, 
+        args.device_indexes, 
+        args.use_hf_whisper, 
+        args.batch_size, 
+        args.num_beams, 
+        args.no_repeat_ngram_size, 
+    )
+
+    sys.exit(0)
+
+'''
     with open(os.path.join("configs", "paths.yml"), "r", encoding="utf-8") as f:
         path_config: dict[str, str] = yaml.safe_load(f.read())
         dataset_root = Path(path_config["dataset_root"])
@@ -205,3 +414,4 @@ if __name__ == "__main__":
                 f.write(f"{wav_file.name}|{model_name}|{language_id}|{text}\n")
 
     sys.exit(0)
+'''
