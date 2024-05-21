@@ -15,3 +15,5 @@
 !/default_config.yml
 !/requirements.txt
 !/server_editor.py
+!/server_fastapi.py
+!/entrypoint_jobs.sh

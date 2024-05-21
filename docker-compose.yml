@@ -1,0 +1,24 @@
+version: '3'
+services:
+  # nginx:
+  #   image: nginx:latest
+  #   ports:
+  #     - 8001:80
+  #   volumes:
+  #     - ./configs/default.conf:/etc/nginx/conf.d/default.conf
+  #     - ./src/resources:/usr/share/nginx/html/resources
+  #     - ./src/static:/usr/share/nginx/html/static
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.deploy
+    image: style-bert-vits2:v1
+    # restart: always
+    env_file:
+      - dev.env
+    # command: tail -f /dev/null  # Keep the container running
+    command: bash entrypoint_jobs.sh
+    ports:
+      - 8009:5000
+    volumes:
+      - ./bert:/home/aiteam/app/bert

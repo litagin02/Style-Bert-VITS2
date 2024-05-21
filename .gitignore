@@ -5,8 +5,9 @@ dist/
 .coverage
 .ipynb_checkpoints/
 .ruff_cache/
-
-/*.yml
+*.env
+*.python-version
+# /*.yml
 !/default_config.yml
 /bert/*/*.bin
 /bert/*/*.h5
