@@ -19,7 +19,7 @@ RUN pip install --upgrade pip
 COPY --chown=aiteam . $HOME/app
 
 # RUN pip install --no-cache-dir -r $HOME/app/requirements.txt
-RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+# RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
 RUN pip install -r $HOME/app/requirements.txt
 
