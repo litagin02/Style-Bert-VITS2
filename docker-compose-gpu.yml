@@ -12,7 +12,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.deploy.gpu
-    image: style-bert-vits2:v1
+    image: style-bert-vits2-gpu:v1
     restart: always
     env_file:
       - dev.env
