@@ -11,11 +11,16 @@ services:
   backend:
     build:
       context: .
-      dockerfile: Dockerfile.deploy
+      dockerfile: Dockerfile.deploy.gpu
     image: style-bert-vits2:v1
     restart: always
     env_file:
       - dev.env
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
     # command: tail -f /dev/null  # Keep the container running
     command: bash entrypoint_jobs.sh
     ports:
