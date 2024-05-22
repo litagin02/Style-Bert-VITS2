@@ -13,7 +13,12 @@ services:
       context: .
       dockerfile: Dockerfile.deploy
     image: style-bert-vits2:v1
-    # restart: always
+    restart: always
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
     env_file:
       - dev.env
     # command: tail -f /dev/null  # Keep the container running
