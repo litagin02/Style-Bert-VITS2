@@ -16,7 +16,6 @@ from style_bert_vits2.nlp import (
     cleaned_text_to_sequence,
     bert_models,
 )
-from style_bert_vits2.models import commons
 import soundfile as sf
 import numpy as np
 from time import time
@@ -77,13 +76,6 @@ def get_text_onnx(
     )
     phone, tone, language = cleaned_text_to_sequence(phone, tone, "JP")
 
-    if hps.data.add_blank:
-        phone = commons.intersperse(phone, 0)
-        tone = commons.intersperse(tone, 0)
-        language = commons.intersperse(language, 0)
-        for i in range(len(word2ph)):
-            word2ph[i] = word2ph[i] * 2
-        word2ph[0] += 1
     bert_ori = extract_bert_feature(
         norm_text,
         word2ph,
