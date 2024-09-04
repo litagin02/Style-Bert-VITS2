@@ -9,6 +9,12 @@ from torch.nn.utils import remove_weight_norm, spectral_norm, weight_norm
 
 from style_bert_vits2.models import attentions, commons, modules, monotonic_alignment
 from style_bert_vits2.nlp.symbols import NUM_LANGUAGES, NUM_TONES, SYMBOLS
+from style_bert_vits2.constants import (
+    DEFAULT_LENGTH,
+    DEFAULT_NOISE,
+    DEFAULT_NOISEW,
+    DEFAULT_SDP_RATIO,
+)
 
 
 class DurationDiscriminator(nn.Module):  # vits2
@@ -912,10 +918,12 @@ class SynthesizerTrn(nn.Module):
         n_layers_trans_flow: int = 6,
         flow_share_parameter: bool = False,
         use_transformer_flow: bool = True,
+        train_mode: bool = True,
         **kwargs: Any,
     ) -> None:
         super().__init__()
         self.n_vocab = n_vocab
+        self.train_mode = train_mode
         self.spec_channels = spec_channels
         self.inter_channels = inter_channels
         self.hidden_channels = hidden_channels
@@ -1008,7 +1016,21 @@ class SynthesizerTrn(nn.Module):
         else:
             self.ref_enc = ReferenceEncoder(spec_channels, gin_channels)
 
-    def forward(
+    def forward(self, *args):
+        if self.train_mode:
+            return self.train_forward(*args)
+        else:
+            kwargs = {
+                "sdp_ratio": DEFAULT_SDP_RATIO,
+                "noise_scale": DEFAULT_NOISE,
+                "noise_scale_w": DEFAULT_NOISEW,
+                "length_scale": DEFAULT_LENGTH,
+            }
+            return self.infer(
+                *args, **kwargs
+            )
+
+    def train_forward(
         self,
         x: torch.Tensor,
         x_lengths: torch.Tensor,

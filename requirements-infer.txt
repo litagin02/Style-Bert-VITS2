@@ -19,6 +19,5 @@ pypinyin
 pyworld-prebuilt
 # stable_ts
 # tensorboard
-torch<2.4
 transformers
 umap-learn

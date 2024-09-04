@@ -854,9 +854,11 @@ class SynthesizerTrn(nn.Module):
         n_layers_trans_flow: int = 4,
         flow_share_parameter: bool = False,
         use_transformer_flow: bool = True,
+        train_mode: bool = True,
         **kwargs: Any,
     ) -> None:
         super().__init__()
+        self.train_mode = train_mode
         self.n_vocab = n_vocab
         self.spec_channels = spec_channels
         self.inter_channels = inter_channels
@@ -951,7 +953,13 @@ class SynthesizerTrn(nn.Module):
         else:
             self.ref_enc = ReferenceEncoder(spec_channels, gin_channels)
 
-    def forward(
+    def forward(self, *args):
+        if self.train_mode:
+            return self.train_forward(*args)
+        else:
+            return self.infer(*args)
+
+    def train_forward(
         self,
         x: torch.Tensor,
         x_lengths: torch.Tensor,

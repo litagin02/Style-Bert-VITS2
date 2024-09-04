@@ -41,3 +41,5 @@ safetensors.ipynb
 *.dic
 
 playground.ipynb
+
+*.onnx

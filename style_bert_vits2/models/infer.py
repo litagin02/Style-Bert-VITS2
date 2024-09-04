@@ -2,6 +2,7 @@ from typing import Any, Optional, Union, cast
 
 import torch
 from numpy.typing import NDArray
+import numpy as np
 
 from style_bert_vits2.constants import Languages
 from style_bert_vits2.logging import logger
@@ -19,7 +20,7 @@ from style_bert_vits2.nlp import (
 from style_bert_vits2.nlp.symbols import SYMBOLS
 
 
-def get_net_g(model_path: str, version: str, device: str, hps: HyperParameters):
+def get_net_g(model_path: str, version: str, device: str, hps: HyperParameters, train_mode: bool = True):
     if version.endswith("JP-Extra"):
         logger.info("Using JP-Extra model")
         net_g = SynthesizerTrnJPExtra(
@@ -50,6 +51,7 @@ def get_net_g(model_path: str, version: str, device: str, hps: HyperParameters):
             use_spectral_norm=hps.model.use_spectral_norm,
             gin_channels=hps.model.gin_channels,
             slm=hps.model.slm,
+            train_mode=train_mode,
         ).to(device)
     else:
         logger.info("Using normal model")
@@ -81,6 +83,7 @@ def get_net_g(model_path: str, version: str, device: str, hps: HyperParameters):
             use_spectral_norm=hps.model.use_spectral_norm,
             gin_channels=hps.model.gin_channels,
             slm=hps.model.slm,
+            train_mode=train_mode,
         ).to(device)
     net_g.state_dict()
     _ = net_g.eval()
@@ -104,6 +107,7 @@ def get_text(
     assist_text_weight: float = 0.7,
     given_phone: Optional[list[str]] = None,
     given_tone: Optional[list[int]] = None,
+    no_torch: bool = False
 ):
     use_jp_extra = hps.version.endswith("JP-Extra")
     # 推論時のみ呼び出されるので、raise_yomi_error は False に設定
@@ -192,9 +196,12 @@ def get_text(
         phone
     ), f"Bert seq len {bert.shape[-1]} != {len(phone)}"
 
-    phone = torch.LongTensor(phone)
-    tone = torch.LongTensor(tone)
-    language = torch.LongTensor(language)
+    if no_torch:
+        phone, tone, language = np.array(phone), np.array(tone), np.array(language)
+    else:
+        phone = torch.LongTensor(phone)
+        tone = torch.LongTensor(tone)
+        language = torch.LongTensor(language)
     return bert, ja_bert, en_bert, phone, tone, language
 
 

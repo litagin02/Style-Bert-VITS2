@@ -1,0 +1,2 @@
+専属Botは、
+Discord.pyで作るといいよ

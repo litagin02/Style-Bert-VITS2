@@ -114,7 +114,7 @@ class TTSModel:
             hps=self.hyper_parameters,
         )
 
-    def __get_style_vector(self, style_id: int, weight: float = 1.0) -> NDArray[Any]:
+    def get_style_vector(self, style_id: int, weight: float = 1.0) -> NDArray[Any]:
         """
         スタイルベクトルを取得する。
 
@@ -169,7 +169,7 @@ class TTSModel:
         xvec = mean + (xvec - mean) * weight
         return xvec
 
-    def __convert_to_16_bit_wav(self, data: NDArray[Any]) -> NDArray[Any]:
+    def convert_to_16_bit_wav(self, data: NDArray[Any]) -> NDArray[Any]:
         """
         音声データを 16-bit int 形式に変換する。
         gradio.processing_utils.convert_to_16_bit_wav() を移植したもの。
