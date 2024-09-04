@@ -31,8 +31,5 @@ torch.onnx.export(
     input_names=["input_ids", "token_type_ids", "attention_mask"],
     output_names=["output"],
     verbose=True,
-    dynamic_axes={
-        "input_ids": {1: "batch_size"},
-        "attention_mask": {1: "batch_size"}
-    }
+    dynamic_axes={"input_ids": {1: "batch_size"}, "attention_mask": {1: "batch_size"}},
 )

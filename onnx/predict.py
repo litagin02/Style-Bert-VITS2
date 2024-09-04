@@ -39,12 +39,15 @@ def extract_bert_feature(
         assist_text = "".join(text_to_sep_kata(assist_text, raise_yomi_error=False)[0])
 
     tokenizer = bert_models.load_tokenizer(Languages.JP)
-    
+
     inputs = tokenizer(text, return_tensors="pt")
-    res = bert_session.run([output_name], {
-        "input_ids": inputs["input_ids"].detach().numpy(),
-        "attention_mask": inputs["attention_mask"].detach().numpy(),
-    })[0]
+    res = bert_session.run(
+        [output_name],
+        {
+            "input_ids": inputs["input_ids"].detach().numpy(),
+            "attention_mask": inputs["attention_mask"].detach().numpy(),
+        },
+    )[0]
 
     assert len(word2ph) == len(text) + 2, text
     word2phone = word2ph
@@ -144,15 +147,18 @@ lang_ids = np.expand_dims(lang_ids, axis=0)
 style_vec_tensor = np.expand_dims(style_vector, axis=0)
 
 before = time()
-output = session.run([output_name], {
-    inputs[0].name: x_tst,
-    inputs[1].name: x_tst_lengths,
-    inputs[2].name: np.array([0], dtype=np.int64),
-    inputs[3].name: tones,
-    inputs[4].name: lang_ids,
-    inputs[5].name: bert,
-    inputs[6].name: style_vec_tensor
-})
+output = session.run(
+    [output_name],
+    {
+        inputs[0].name: x_tst,
+        inputs[1].name: x_tst_lengths,
+        inputs[2].name: np.array([0], dtype=np.int64),
+        inputs[3].name: tones,
+        inputs[4].name: lang_ids,
+        inputs[5].name: bert,
+        inputs[6].name: style_vec_tensor,
+    },
+)
 print(time() - before)
 audio = helper.convert_to_16_bit_wav(output[0][0, 0])
 sf.write("v2.output.wav", audio, 44100)
