@@ -20,6 +20,8 @@ import soundfile as sf
 import numpy as np
 from time import time
 from typing import Optional
+from tokenizers import Tokenizer
+from fugashi import Tagger
 
 
 bert_session = onnxruntime.InferenceSession(
@@ -37,14 +39,22 @@ def extract_bert_feature(
     if assist_text:
         assist_text = "".join(text_to_sep_kata(assist_text, raise_yomi_error=False)[0])
 
-    tokenizer = bert_models.load_tokenizer(Languages.JP)
+    ftokenizer = Tokenizer.from_file("tokenizer.json")
+    encoded_tokens = ["[CLS]"]
+    attention_mask = [1]
+    for word in text:
+        encoded = ftokenizer.encode(word)
+        encoded_tokens.extend(encoded.tokens[1:-1])
+        attention_mask.extend(encoded.attention_mask[1:-1])
 
-    inputs = tokenizer(text, return_tensors="pt")
+    attention_mask.append(1)
+    encoded_tokens.append("[SEP]")
+    token_ids = [ftokenizer.token_to_id(token) for token in encoded_tokens]
     res = bert_session.run(
         [output_name],
         {
-            "input_ids": inputs["input_ids"].detach().numpy(),
-            "attention_mask": inputs["attention_mask"].detach().numpy(),
+            "input_ids": np.array(token_ids).reshape(1, -1),
+            "attention_mask": np.array(attention_mask).reshape(1, -1),
         },
     )[0]
 
