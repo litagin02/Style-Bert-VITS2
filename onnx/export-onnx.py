@@ -115,8 +115,6 @@ torch.onnx.export(
         "tones",
         "language",
         "bert",
-        "ja_bert",
-        "en_bert
         "style_vec",
     ],
     output_names=["output"],
