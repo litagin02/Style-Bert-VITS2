@@ -10,6 +10,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import unquote
+import time
 
 import GPUtil
 import psutil
@@ -42,6 +43,9 @@ from style_bert_vits2.tts_model import TTSModel, TTSModelHolder
 
 config = get_config()
 ln = config.server_config.language
+
+import nltk
+nltk.download('averaged_perceptron_tagger_eng')
 
 
 # pyopenjtalk_worker を起動
@@ -233,6 +237,8 @@ if __name__ == "__main__":
         assert style is not None
         if encoding is not None:
             text = unquote(text, encoding=encoding)
+
+        infer_start = time.time()
         sr, audio = model.infer(
             text=text,
             language=language,
@@ -253,6 +259,7 @@ if __name__ == "__main__":
         logger.success("Audio data generated and sent successfully")
         with BytesIO() as wavContent:
             wavfile.write(wavContent, sr, audio)
+            logger.info(f"Inference time: {time.time()-infer_start} seconds")
             return Response(content=wavContent.getvalue(), media_type="audio/wav")
 
     @app.post("/g2p")
