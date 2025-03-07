@@ -369,7 +369,7 @@ class TTSModelHolder:
             device (str): 音声合成時に利用するデバイス (cpu, cuda, mps など)
         """
 
-        self.root_dir: Path = model_root_dir
+        # self.root_dir: Path = model_root_dir
         self.config_file = config
         self.device: str = device
         self.model_files_dict: dict[str, list[Path]] = {}
