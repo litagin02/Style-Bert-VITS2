@@ -117,16 +117,14 @@ class AudioResponse(Response):
 
 
 def load_models(model_holder: TTSModelHolder):
-    global loaded_models
-    loaded_models = []
-    for model_name, model_paths in model_holder.model_files_dict.items():
+    for model_name, paths in model_holder.model_files_dict.items():
         model = TTSModel(
-            model_path=model_paths[0],
-            config_path=model_holder.root_dir / model_name / "config.json",
-            style_vec_path=model_holder.root_dir / model_name / "style_vectors.npy",
+            model_path=Path(paths["model_path"]),
+            config_path=Path(paths["config_path"]),
+            style_vec_path=Path(paths.get("style_vec_path", "")),
             device=model_holder.device,
         )
-        # 起動時に全てのモデルを読み込むのは時間がかかりメモリを食うのでやめる
+        # Avoid loading all models at startup to save time and memory
         # model.load()
         loaded_models.append(model)
 
