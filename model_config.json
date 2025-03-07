@@ -1,0 +1,10 @@
+{
+    "models": {
+      "tts-english-hd": {
+        "model_path": "model_assets/tts-english-hd/improved-model.safetensors",
+        "config_path": "model_assets/tts-english-hd/config.json",
+        "style_vec_path": "model_assets/tts-english-hd/style_vectors.npy"
+      }
+    }
+  }
+  

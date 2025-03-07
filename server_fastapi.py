@@ -72,12 +72,48 @@ def raise_validation_error(msg: str, param: str):
         detail=[dict(type="invalid_params", msg=msg, loc=["query", param])],
     )
 
+# Function to extract words from the CMU Pronouncing Dictionary
+def extract_words_from_cmudict(file_path):
+    words = set()
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            for line in file:
+                # Skip comment lines starting with ##
+                if line.startswith('##'):
+                    continue
+                # Split the line by whitespace and take the first part (the word)
+                parts = line.split()
+                if parts:  # Ensure the line isn't empty
+                    word = parts[0]
+                    # Add the word to the set (case-insensitive)
+                    words.add(word.lower())
+    except FileNotFoundError:
+        print(f"Error: File not found at {file_path}")
+    except Exception as e:
+        print(f"Error reading file: {e}")
+    return words
+
+# Define the clean function
+import string
+
+def clean(sentence, dictionary_words):
+    # Split the sentence into words
+    words = sentence.split()
+    # Remove punctuation from each word and keep only words that are in the dictionary (case-insensitive)
+    filtered_words = [word for word in words if word.strip(string.punctuation).lower() in dictionary_words]
+    # Join the filtered words back into a sentence
+    return ' '.join(filtered_words)
+
+file_path = "style_bert_vits2/nlp/english/cmudict.rep"
+
+# Extract words from the file
+dictionary_words = extract_words_from_cmudict(file_path)
+
+loaded_models: list[TTSModel] = []
 
 class AudioResponse(Response):
     media_type = "audio/wav"
 
-
-loaded_models: list[TTSModel] = []
 
 
 def load_models(model_holder: TTSModelHolder):
@@ -95,6 +131,61 @@ def load_models(model_holder: TTSModelHolder):
         loaded_models.append(model)
 
 
+# Define your API keys and secret
+API_KEYS = {
+    'nodejs-service': 'nodejs-api-key',
+    'python-service1': 'python1-api-key',
+}
+
+
+import hashlib
+
+API_KEYS = {
+    'ruby-service': 'sps-dasjidnkwoi0eqjdndaisjirwanjidansidnqwihrdasdas',
+    'python-service1': 'python1-api-key',
+}
+
+SERVICE_SECRET = 'dhjasd44e3eqwe32eqw532eqweandi3j4'
+
+def verify_signature(service_name: str, signature: str) -> bool:
+    """
+    Verify the incoming request signature.
+    """
+    api_key = API_KEYS.get(service_name)
+    if not api_key:
+        return False
+
+    # Recreate the expected signature
+    data = f"{service_name}{api_key}{SERVICE_SECRET}"
+    expected_signature = hashlib.sha256(data.encode()).hexdigest()
+
+    return signature == expected_signature
+
+
+def authenticate_service(func):
+    """
+    Decorator to authenticate service-to-service requests.
+    """
+    @wraps(func)
+    async def wrapper(*args, **kwargs) -> Response:
+        request: Request = kwargs.get("request")
+        if not request:
+            raise HTTPException(status_code=403, detail="Missing request")
+            
+        x_service_name: Optional[str] = request.headers.get("X-Service-Name") 
+        x_signature: Optional[str] = request.headers.get("X-Signature")
+
+        if not x_service_name or not x_signature:
+            raise HTTPException(status_code=403, detail="Missing authentication headers")
+
+        if not verify_signature(x_service_name, x_signature):
+            raise HTTPException(status_code=403, detail="Invalid authentication signature")
+
+        return await func(*args, **kwargs)
+
+    return wrapper
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--cpu", action="store_true", help="Use CPU instead of GPU")
@@ -107,11 +198,11 @@ if __name__ == "__main__":
         device = "cpu"
     else:
         device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    model_dir = Path(args.dir)
-    model_holder = TTSModelHolder(model_dir, device)
+    # model_dir = Path(args.dir)
+    model_config = Path("model_config.json")
+    model_holder = TTSModelHolder(model_config, device)
     if len(model_holder.model_names) == 0:
-        logger.error(f"Models not found in {model_dir}.")
+        logger.error(f"Models not found in {model_config}.")
         sys.exit(1)
 
     logger.info("Loading models...")
@@ -140,7 +231,9 @@ if __name__ == "__main__":
     # app.logger = logger
     # ↑効いていなさそう。loggerをどうやって上書きするかはよく分からなかった。
 
+
     @app.api_route("/voice", methods=["GET", "POST"], response_class=AudioResponse)
+    @authenticate_service
     async def voice(
         request: Request,
         text: str = Query(..., min_length=1, max_length=limit, description="セリフ"),
@@ -201,26 +294,22 @@ if __name__ == "__main__":
             logger.warning(
                 "The GET method is not recommended for this endpoint due to various restrictions. Please use the POST method."
             )
+
         if model_id >= len(
             model_holder.model_names
         ):  # /models/refresh があるためQuery(le)で表現不可
             raise_validation_error(f"model_id={model_id} not found", "model_id")
 
-        if model_name:
-            # load_models() の 処理内容が i の正当性を担保していることに注意
-            model_ids = [i for i, x in enumerate(model_holder.models_info) if x.name == model_name]
-            if not model_ids:
-                raise_validation_error(
-                    f"model_name={model_name} not found", "model_name"
-                )
-            # 今の実装ではディレクトリ名が重複することは無いはずだが...
-            if len(model_ids) > 1:
-                raise_validation_error(
-                    f"model_name={model_name} is ambiguous", "model_name"
-                )
-            model_id = model_ids[0]
-            
+        
+        clean_time =  time.time()
+        if language == "EN":
+            text = clean(text, dictionary_words)
+        print("The time it take to clean the text is ", time.time() - clean_time)
+
+        #text = preproccesed text
+
         model = loaded_models[model_id]
+
         if speaker_name is None:
             if speaker_id not in model.id2spk.keys():
                 raise_validation_error(

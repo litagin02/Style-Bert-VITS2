@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Any, Optional, Union
+import json
 
 import numpy as np
 import torch
@@ -346,7 +347,7 @@ class TTSModelHolder:
     model_holder.models_info から指定されたディレクトリ内にある音声合成モデルの一覧を取得できる。
     """
 
-    def __init__(self, model_root_dir: Path, device: str) -> None:
+    def __init__(self, config: Path, device: str) -> None:
         """
         Style-Bert-Vits2 の音声合成モデルを管理するクラスを初期化する。
         音声合成モデルは下記のように配置されていることを前提とする (.safetensors のファイル名は自由) 。
@@ -369,6 +370,7 @@ class TTSModelHolder:
         """
 
         self.root_dir: Path = model_root_dir
+        self.config_file = config
         self.device: str = device
         self.model_files_dict: dict[str, list[Path]] = {}
         self.current_model: Optional[TTSModel] = None
@@ -381,44 +383,62 @@ class TTSModelHolder:
         音声合成モデルの一覧を更新する。
         """
 
-        self.model_files_dict = {}
-        self.model_names = []
+        with open(self.config_file, 'r') as f:
+            config = json.load(f)
+
+
+        self.model_files_dict = config.get('models', {})
+        self.model_names = list(self.model_files_dict.keys())
         self.current_model = None
         self.models_info = []
 
-        model_dirs = [d for d in self.root_dir.iterdir() if d.is_dir()]
-        for model_dir in model_dirs:
-            model_files = [
-                f
-                for f in model_dir.iterdir()
-                if f.suffix in [".pth", ".pt", ".safetensors"]
-            ]
-            if len(model_files) == 0:
-                logger.warning(f"No model files found in {model_dir}, so skip it")
-                continue
-            config_path = model_dir / "config.json"
-            if not config_path.exists():
-                logger.warning(
-                    f"Config file {config_path} not found, so skip {model_dir}"
-                )
-                continue
-            self.model_files_dict[model_dir.name] = model_files
-            self.model_names.append(model_dir.name)
+        for model_name, paths in self.model_files_dict.items():
+            model_path = paths["model_path"]
+            config_path = paths["config_path"]
+            style_vec_path = paths.get("style_vec_path", None)
+
             hyper_parameters = HyperParameters.load_from_json(config_path)
-            style2id: dict[str, int] = hyper_parameters.data.style2id
+            style2id: Dict[str, int] = hyper_parameters.data.style2id
             styles = list(style2id.keys())
-            spk2id: dict[str, int] = hyper_parameters.data.spk2id
+            spk2id: Dict[str, int] = hyper_parameters.data.spk2id
             speakers = list(spk2id.keys())
+
             self.models_info.append(
                 TTSModelInfo(
-                    name=model_dir.name,
-                    files=[str(f) for f in model_files],
+                    name=model_name,
+                    files=[model_path],
                     styles=styles,
                     speakers=speakers,
                 )
             )
 
     def get_model(self, model_name: str, model_path_str: str) -> TTSModel:
+        """
+        Get the instance of the specified voice synthesis model.
+
+        Args:
+            model_name (str): Name of the voice synthesis model
+
+        Returns:
+            TTSModel: Instance of the voice synthesis model
+        """
+        if model_name not in self.model_files_dict:
+            raise ValueError(f"Model `{model_name}` is not found")
+
+        paths = self.model_files_dict[model_name]
+        model_path = Path(paths["model_path"])
+        config_path = Path(paths["config_path"])
+        style_vec_path = Path(paths.get("style_vec_path", ""))
+
+        if self.current_model is None or self.current_model.model_path != model_path:
+            self.current_model = TTSModel(
+                model_path=model_path,
+                config_path=config_path,
+                style_vec_path=style_vec_path,
+                device=self.device,
+            )
+
+        return self.current_model
         """
         指定された音声合成モデルのインスタンスを取得する。
         この時点ではモデルはロードされていない (明示的にロードしたい場合は model.load() を呼び出す)。
