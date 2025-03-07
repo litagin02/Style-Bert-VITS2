@@ -197,7 +197,7 @@ class Server_config:
         self,
         port: int = 5000,
         device: str = "cuda",
-        limit: int = 100,
+        limit: int = 500,
         language: str = "JP",
         origins: list[str] = ["*"],
     ):

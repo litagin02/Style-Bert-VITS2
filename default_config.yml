@@ -65,6 +65,6 @@ server:
   port: 5000
   device: "cuda"
   language: "JP"
-  limit: 100
+  limit: 500
   origins:
     - "*"
