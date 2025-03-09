@@ -1,10 +1,74 @@
 {
-    "models": {
-      "tts-english-hd": {
-        "model_path": "model_assets/tts-english-hd/improved-model.safetensors",
-        "config_path": "model_assets/tts-english-hd/config.json",
-        "style_vec_path": "model_assets/tts-english-hd/style_vectors.npy"
-      }
+  "models": {
+    "tts-model-actor1-emotion": {
+      "model_path": "model_assets/tts-model-actor1-emotion/merged-model.safetensors",
+      "config_path": "model_assets/tts-model-actor1-emotion/config.json",
+      "style_vec_path": "model_assets/tts-model-actor1-emotion/style_vectors.npy"
+    },
+    "tts-model-z-japanese-shiratori": {
+      "model_path": "model_assets/tts-model-z-japanese-shiratori/shiratori-model-merged.safetensors",
+      "config_path": "model_assets/tts-model-z-japanese-shiratori/config.json",
+      "style_vec_path": "model_assets/tts-model-z-japanese-shiratori/style_vectors.npy"
+    },
+    "tts-model-santome": {
+      "model_path": "model_assets/tts-model-santome/merged-model.safetensors",
+      "config_path": "model_assets/tts-model-santome/config.json",
+      "style_vec_path": "model_assets/tts-model-santome/style_vectors.npy"
+    },
+    "tts-model": {
+      "model_path": "model_assets/tts-model/tts-model_e61_s56000.safetensors",
+      "config_path": "model_assets/tts-model/config.json",
+      "style_vec_path": "model_assets/tts-model/style_vectors.npy"
+    },
+    "tts-model-satome-sad": {
+      "model_path": "model_assets/tts-model-satome-sad/merged-model-santome.safetensors",
+      "config_path": "model_assets/tts-model-satome-sad/config.json",
+      "style_vec_path": "model_assets/tts-model-satome-sad/style_vectors.npy"
+    },
+    "tts-model-z-english-v1": {
+      "model_path": "model_assets/tts-model-z-english-v1/z-english-v1.safetensors",
+      "config_path": "model_assets/tts-model-z-english-v1/config.json",
+      "style_vec_path": "model_assets/tts-model-z-english-v1/style_vectors.npy"
+    },
+    "tts-model-z-english-v2-shiratori": {
+      "model_path": "model_assets/tts-model-z-english-v2-shiratori/shiratori-model.safetensors",
+      "config_path": "model_assets/tts-model-z-english-v2-shiratori/config.json",
+      "style_vec_path": "model_assets/tts-model-z-english-v2-shiratori/style_vectors.npy"
+    },
+    "tts-model-z-z-igarashi-umika-hanaka": {
+      "model_path": "model_assets/tts-model-z-z-igarashi-umika-hanaka/z1-5-speakers.safetensors",
+      "config_path": "model_assets/tts-model-z-z-igarashi-umika-hanaka/config.json",
+      "style_vec_path": "model_assets/tts-model-z-z-igarashi-umika-hanaka/style_vectors.npy"
+    },
+    "igarashi-eng": {
+      "model_path": "model_assets/igarashi-eng/igarashi-eng.safetensors",
+      "config_path": "model_assets/igarashi-eng/config.json",
+      "style_vec_path": "model_assets/igarashi-eng/style_vectors.npy"
+    },
+    "saionji-sad": {
+      "model_path": "model_assets/saionji-sad/tts-saionji-sad.safetensors",
+      "config_path": "model_assets/saionji-sad/config.json",
+      "style_vec_path": "model_assets/saionji-sad/style_vectors.npy"
+    },
+    "saotome+test": {
+      "model_path": "model_assets/saotome+test/0807_saotome+EmotionalmodelSad.safetensors",
+      "config_path": "model_assets/saotome+test/config.json",
+      "style_vec_path": "model_assets/saotome+test/style_vectors.npy"
+    },
+    "saionji+test": {
+      "model_path": "model_assets/saionji+test/0807_saionji+EmotionalmodelSad.safetensors",
+      "config_path": "model_assets/saionji+test/config.json",
+      "style_vec_path": "model_assets/saionji+test/style_vectors.npy"
+    },
+    "nekohime-youtubelive": {
+      "model_path": "model_assets/nekohime-youtubelive/0903_nero.safetensors",
+      "config_path": "model_assets/nekohime-youtubelive/config.json",
+      "style_vec_path": "model_assets/nekohime-youtubelive/style_vectors.npy"
+    },
+    "tts-english-hd": {
+      "model_path": "model_assets/tts-english-hd/improved-model.safetensors",
+      "config_path": "model_assets/tts-english-hd/config.json",
+      "style_vec_path": "model_assets/tts-english-hd/style_vectors.npy"
     }
   }
-  
+}
