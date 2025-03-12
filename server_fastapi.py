@@ -234,7 +234,7 @@ if __name__ == "__main__":
     @authenticate_service
     async def voice(
         request: Request,
-        text: str = Query(..., min_length=1, max_length=limit, description="セリフ"),
+        text: str = Query(..., min_length=1, max_length=None, description="セリフ"),
         encoding: str = Query(None, description="textをURLデコードする(ex, `utf-8`)"),
         model_name: str = Query(
             None,
