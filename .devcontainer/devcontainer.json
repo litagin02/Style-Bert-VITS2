@@ -1,0 +1,27 @@
+{
+    "name": "Style-Bert-VITS2",
+    "build": {
+      "dockerfile": "Dockerfile",
+      "context": ".."
+    },
+    "runArgs": [
+      "--gpus=all"
+    ],
+    "forwardPorts": [7860, 8888],
+    "postCreateCommand": "cd /workspaces/Style-Bert-VITS2 && python -m pip install -r requirements.txt && python initialize.py",
+    "customizations": {
+      "vscode": {
+        "extensions": [
+          "ms-python.python",
+          "ms-toolsai.jupyter",
+          "ms-python.vscode-pylance"
+        ],
+        "settings": {
+          "python.defaultInterpreterPath": "/usr/bin/python3",
+          "python.linting.enabled": true,
+          "editor.formatOnSave": true,
+          "python.formatting.provider": "black"
+        }
+      }
+    }
+  }
