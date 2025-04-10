@@ -8,7 +8,7 @@ import os
 import sys
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Generator
 from urllib.parse import unquote
 import time
 
