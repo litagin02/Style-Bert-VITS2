@@ -228,9 +228,46 @@ if __name__ == "__main__":
         )
     # app.logger = logger
     # ↑効いていなさそう。loggerをどうやって上書きするかはよく分からなかった。
+    def generate_wav_segments(
+        model: TTSModel,
+        text: str,
+        language: Languages,
+        speaker_id: int,
+        reference_audio_path: Optional[str],
+        sdp_ratio: float,
+        noise: float,
+        noisew: float,
+        length: float,
+        auto_split: bool,
+        split_interval: float,
+        assist_text: Optional[str],
+        assist_text_weight: float,
+        style: str,
+        style_weight: float,
+    ) -> Generator[bytes, None, None]:
+        """Generate WAV audio segments as bytes."""
+        for sr, audio_segment in model.infer(
+            text=text,
+            language=language,
+            speaker_id=speaker_id,
+            reference_audio_path=reference_audio_path,
+            sdp_ratio=sdp_ratio,
+            noise=noise,
+            noise_w=noisew,
+            length=length,
+            line_split=auto_split,
+            split_interval=split_interval,
+            assist_text=assist_text,
+            assist_text_weight=assist_text_weight,
+            use_assist_text=bool(assist_text),
+            style=style,
+            style_weight=style_weight,
+        ):
+            buffer = BytesIO()
+            wav_write(buffer, sr, audio_segment)
+            yield buffer.getvalue()
 
-
-    @app.api_route("/voice", methods=["GET", "POST"], response_class=AudioResponse)
+    @app.api_route("/voice", methods=["GET", "POST"])
     @authenticate_service
     async def voice(
         request: Request,
@@ -284,7 +321,7 @@ if __name__ == "__main__":
             None, description="スタイルを音声ファイルで行う"
         ),
     ):
-        """Infer text to speech(テキストから感情付き音声を生成する)"""
+        """Stream text-to-speech audio incrementally (e.g., sentence by sentence)."""
         logger.info(
             f"{request.client.host}:{request.client.port}/voice  { unquote(str(request.query_params) )}"
         )
@@ -293,31 +330,20 @@ if __name__ == "__main__":
                 "The GET method is not recommended for this endpoint due to various restrictions. Please use the POST method."
             )
 
-        if model_id >= len(
-            model_holder.model_names
-        ):  # /models/refresh があるためQuery(le)で表現不可
+        if model_id >= len(model_holder.model_names):
             raise_validation_error(f"model_id={model_id} not found", "model_id")
 
-        
-        clean_time =  time.time()
         if language == "EN":
             text = clean(text, dictionary_words)
-        print("The time it take to clean the text is ", time.time() - clean_time)
-
-        #text = preproccesed text
 
         model = loaded_models[model_id]
 
         if speaker_name is None:
             if speaker_id not in model.id2spk.keys():
-                raise_validation_error(
-                    f"speaker_id={speaker_id} not found", "speaker_id"
-                )
+                raise_validation_error(f"speaker_id={speaker_id} not found", "speaker_id")
         else:
             if speaker_name not in model.spk2id.keys():
-                raise_validation_error(
-                    f"speaker_name={speaker_name} not found", "speaker_name"
-                )
+                raise_validation_error(f"speaker_name={speaker_name} not found", "speaker_name")
             speaker_id = model.spk2id[speaker_name]
         if style not in model.style2id.keys():
             raise_validation_error(f"style={style} not found", "style")
@@ -325,29 +351,26 @@ if __name__ == "__main__":
         if encoding is not None:
             text = unquote(text, encoding=encoding)
 
-        infer_start = time.time()
-        sr, audio = model.infer(
-            text=text,
-            language=language,
-            speaker_id=speaker_id,
-            reference_audio_path=reference_audio_path,
-            sdp_ratio=sdp_ratio,
-            noise=noise,
-            noise_w=noisew,
-            length=length,
-            line_split=auto_split,
-            split_interval=split_interval,
-            assist_text=assist_text,
-            assist_text_weight=assist_text_weight,
-            use_assist_text=bool(assist_text),
-            style=style,
-            style_weight=style_weight,
+        return StreamingResponse(
+            generate_wav_segments(
+                model=model,
+                text=text,
+                language=language,
+                speaker_id=speaker_id,
+                reference_audio_path=reference_audio_path,
+                sdp_ratio=sdp_ratio,
+                noise=noise,
+                noisew=noisew,
+                length=length,
+                auto_split=auto_split,
+                split_interval=split_interval,
+                assist_text=assist_text,
+                assist_text_weight=assist_text_weight,
+                style=style,
+                style_weight=style_weight,
+            ),
+            media_type="audio/wav",
         )
-        logger.success("Audio data generated and sent successfully")
-        with BytesIO() as wavContent:
-            wavfile.write(wavContent, sr, audio)
-            logger.info(f"Inference time: {time.time()-infer_start} seconds")
-            return Response(content=wavContent.getvalue(), media_type="audio/wav")
 
     @app.post("/g2p")
     def g2p(text: str):
