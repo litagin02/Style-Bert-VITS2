@@ -170,18 +170,50 @@ class TTSModel:
         mean = self.__style_vectors[0]
         xvec = mean + (xvec - mean) * weight
         return xvec
-    # Function to split text based on punctuation and newlines
+    
     def split_text_by_punctuation_and_newlines(self, text):
         import re
-        # Define a regex pattern to split after sentence-ending punctuation or newlines
-        pattern = r'([。！？、．.!]\s*|[\n])'  # Split *after* punctuation followed by optional whitespace, or newline
-        chunks = [chunk.strip() for chunk in re.split(pattern, text) if chunk.strip()]
-        # Filter out standalone punctuation chunks that might remain
-        sentences = [chunk for chunk in chunks if not re.fullmatch(r'[。！？、．.! \n]+', chunk)]
 
-        # Debugging log
+        # Normalize the text (optional but helpful for consistent behavior)
+        text = text.strip()
+
+        # Split using punctuation (Japanese, Chinese, English) or newline/comma
+        punctuation_pattern = r'(?<=[。！？、．.!?,\n])\s*'
+        chunks = [chunk.strip() for chunk in re.split(punctuation_pattern, text) if chunk.strip()]
+
+        sentences = []
+
+        # Handle first chunk: 3 words, second chunk: 5 words, then full chunks
+        word_count = 0
+        temp_chunk = []
+
+        for i, chunk in enumerate(chunks):
+            words = re.findall(r'\S+', chunk)  # non-whitespace sequence = word
+            for word in words:
+                temp_chunk.append(word)
+                word_count += 1
+
+                if len(sentences) == 0 and word_count == 3:
+                    sentences.append(' '.join(temp_chunk))
+                    temp_chunk = []
+                    word_count = 0
+                elif len(sentences) == 1 and word_count == 5:
+                    sentences.append(' '.join(temp_chunk))
+                    temp_chunk = []
+                    word_count = 0
+
+            # After the initial two chunks, just use punctuation-based splits
+            if len(sentences) >= 2 and chunk:
+                sentences.append(chunk)
+
+        # Catch any remaining words
+        if temp_chunk:
+            sentences.append(' '.join(temp_chunk))
+
+        # Debug log
         logger.info(f"Split text into {len(sentences)} sentences: {sentences}")
         return sentences
+
 
     def __convert_to_16_bit_wav(self, data: NDArray[Any]) -> NDArray[Any]:
         """

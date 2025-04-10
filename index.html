@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TTS WAV Streaming (~8 Chunks)</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        textarea {
+            width: 80%;
+            height: 150px;
+            margin-bottom: 10px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        #playbackStartMessage {
+            width: 80%;
+            padding: 15px;
+            margin-top: 10px;
+            font-size: 18px;
+            font-weight: bold;
+            color: #ffffff;
+            background-color: #28a745;
+            border-radius: 5px;
+            text-align: center;
+            display: none;
+        }
+        #log {
+            width: 80%;
+            height: 200px;
+            border: 1px solid #ccc;
+            overflow-y: auto;
+            padding: 10px;
+            margin-top: 10px;
+            background-color: #f9f9f9;
+        }
+    </style>
+</head>
+<body>
+    <h1>TTS WAV Streaming (~8 Chunks)</h1>
+    <textarea id="textInput">Since Donald Trump returned to office and announced sweeping new tariffs in early 2025, the USA economy has faced significant turbulence, especially in the stock market. The announcement of a 10% baseline tariff on all imports triggered immediate panic among investors, leading to a massive two-day sell-off where U.S. stocks lost approximately $6.6 trillion in global market value. This shock came on top of an ongoing decline that has erased around $4 trillion from the S&P 500’s value since its February peak. Major indices like the S&P 500, Dow Jones Industrial Average, and Nasdaq have experienced some of their worst performances since the COVID-19 pandemic, entering what analysts call bear market territory. Contrary to expectations, the U.S. dollar also weakened after the tariffs, as global investors grew wary of rising costs, disrupted trade flows, and increasing political uncertainty. While Trump officials continue to defend the tariffs as necessary for national strength and predict long-term economic gains, markets have not reacted favorably, and fears of a looming recession are growing stronger. Many economists now worry that if current trends continue, the tariffs could lead to job losses, lower consumer spending, and a deeper economic downturn in the months ahead.</textarea>
+    <button onclick="startStreaming()">Generate and Stream</button>
+    <div id="playbackStartMessage"></div>
+    <div id="log"></div>
+
+    <script>
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        let audioQueue = [];
+        let isPlaying = false;
+        let nextStartTime = 0;
+        let startTime;
+        let firstPlaybackTime = null;
+
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            logDiv.innerHTML += `${message}<br>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function updatePlaybackStartMessage(delay) {
+            const messageDiv = document.getElementById('playbackStartMessage');
+            messageDiv.textContent = `Audio started playing ${delay} seconds after request sent`;
+            messageDiv.style.display = 'block';
+        }
+
+        async function queueWavChunk(wavData, elapsedTime) {
+            try {
+                const arrayBuffer = wavData.buffer.slice(wavData.byteOffset, wavData.byteOffset + wavData.byteLength);
+                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                audioQueue.push({ buffer: audioBuffer, duration: audioBuffer.duration });
+                log(`WAV chunk queued at ${elapsedTime.toFixed(2)} seconds (${wavData.length} bytes, ${audioBuffer.duration.toFixed(2)} seconds)`);
+                if (!isPlaying) playNextChunk();
+            } catch (error) {
+                log(`Error decoding WAV chunk: ${error}`);
+            }
+        }
+
+        function playNextChunk() {
+            if (audioQueue.length === 0) {
+                isPlaying = false;
+                return;
+            }
+
+            isPlaying = true;
+            const { buffer, duration } = audioQueue.shift();
+            const source = audioContext.createBufferSource();
+            source.buffer = buffer;
+            source.connect(audioContext.destination);
+            source.start(nextStartTime);
+
+            if (firstPlaybackTime === null) {
+                const playbackStartDelay = ((performance.now() - startTime) / 1000).toFixed(2);
+                updatePlaybackStartMessage(playbackStartDelay);
+                firstPlaybackTime = performance.now();
+            }
+
+            nextStartTime = audioContext.currentTime + duration;
+            source.onended = () => playNextChunk();
+        }
+
+        async function startStreaming() {
+            const text = document.getElementById('textInput').value;
+            const url = `http://18.176.199.184:5000/voice?text=${encodeURIComponent(text)}&model_id=13&speaker_name=saotome&speaker_id=1&sdp_ratio=0.2&noise=0.6&noisew=0.8&length=1&language=EN&auto_split=true&split_interval=0.5&assist_text_weight=1&style=Neutral&style_weight=5&pitch_scale=1&intonation_scale=1`;
+            const headers = {
+                "X-Service-Name": "ruby-service",
+                "X-Signature": "c9fcbe44e4ef8525ee5b1f60e5bf53574cd809503c5b82c72194fcc58b0fd5e2"
+            };
+
+            log("Starting stream...");
+            startTime = performance.now();
+            nextStartTime = audioContext.currentTime;
+            firstPlaybackTime = null;
+            document.getElementById('playbackStartMessage').style.display = 'none';
+
+            try {
+                const response = await fetch(url, { method: 'GET', headers });
+                if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+
+                const reader = response.body.getReader();
+                let buffer = new Uint8Array();
+                let chunkCount = 0;
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                        if (buffer.length >= 44) {
+                            const elapsedTime = (performance.now() - startTime) / 1000;
+                            await queueWavChunk(buffer, elapsedTime);
+                            chunkCount++;
+                        }
+                        break;
+                    }
+
+                    const newBuffer = new Uint8Array(buffer.length + value.length);
+                    newBuffer.set(buffer);
+                    newBuffer.set(value, buffer.length);
+                    buffer = newBuffer;
+
+                    while (buffer.length >= 44) {
+                        const view = new DataView(buffer.buffer);
+                        if (String.fromCharCode.apply(null, buffer.subarray(0, 4)) !== 'RIFF') break;
+
+                        const dataSize = view.getUint32(40, true);
+                        const totalSize = 44 + dataSize;
+
+                        if (buffer.length >= totalSize) {
+                            const wavChunk = buffer.subarray(0, totalSize);
+                            const elapsedTime = (performance.now() - startTime) / 1000;
+                            await queueWavChunk(wavChunk, elapsedTime);
+                            buffer = buffer.subarray(totalSize);
+                            chunkCount++;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+
+                const totalTime = ((performance.now() - startTime) / 1000).toFixed(2);
+                log(`Stream complete. Total chunks: ${chunkCount}, Total time: ${totalTime} seconds`);
+
+            } catch (error) {
+                log(`Error: ${error}`);
+            }
+        }
+    </script>
+</body>
+</html>
