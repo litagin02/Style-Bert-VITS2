@@ -2,6 +2,9 @@
 API server for TTS
 TODO: server_editor.pyと統合する?
 """
+from fastapi.responses import StreamingResponse
+from scipy.io.wavfile import write as wav_write
+from io import BytesIO
 
 import argparse
 import os
