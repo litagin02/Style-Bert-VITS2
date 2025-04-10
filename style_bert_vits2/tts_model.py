@@ -174,7 +174,6 @@ class TTSModel:
     def split_text_by_punctuation_and_newlines(self, text):
         import re
 
-        # Normalize the text (optional but helpful for consistent behavior)
         text = text.strip()
 
         # Split using punctuation (Japanese, Chinese, English) or newline/comma
@@ -182,37 +181,54 @@ class TTSModel:
         chunks = [chunk.strip() for chunk in re.split(punctuation_pattern, text) if chunk.strip()]
 
         sentences = []
-
-        # Handle first chunk: 3 words, second chunk: 5 words, then full chunks
+        word_buffer = []
         word_count = 0
-        temp_chunk = []
+        chunk_index = 0  # To track where we are in the chunks list
 
-        for i, chunk in enumerate(chunks):
-            words = re.findall(r'\S+', chunk)  # non-whitespace sequence = word
+        # Combine chunks until first 3-word sentence is built
+        for i in range(len(chunks)):
+            words = re.findall(r'\S+', chunks[i])
             for word in words:
-                temp_chunk.append(word)
+                word_buffer.append(word)
                 word_count += 1
-
                 if len(sentences) == 0 and word_count == 3:
-                    sentences.append(' '.join(temp_chunk))
-                    temp_chunk = []
+                    sentences.append(' '.join(word_buffer))
+                    word_buffer = []
                     word_count = 0
-                elif len(sentences) == 1 and word_count == 5:
-                    sentences.append(' '.join(temp_chunk))
-                    temp_chunk = []
+                    chunk_index = i  # Save index of the last chunk used
+                    break
+            if len(sentences) == 1:
+                break
+
+        # Build the second 5-word sentence
+        for j in range(chunk_index, len(chunks)):
+            words = re.findall(r'\S+', chunks[j])
+            for word in words:
+                word_buffer.append(word)
+                word_count += 1
+                if len(sentences) == 1 and word_count == 5:
+                    sentences.append(' '.join(word_buffer))
+                    word_buffer = []
                     word_count = 0
+                    chunk_index = j  # Save index of the last chunk used
+                    break
+            if len(sentences) == 2:
+                break
 
-            # After the initial two chunks, just use punctuation-based splits
-            if len(sentences) >= 2 and chunk:
-                sentences.append(chunk)
+        # Add the rest of the chunks, skipping the ones already used
+        remaining_chunks = chunks[chunk_index + 1:]
+        for chunk in remaining_chunks:
+            if chunk.strip():
+                sentences.append(chunk.strip())
 
-        # Catch any remaining words
-        if temp_chunk:
-            sentences.append(' '.join(temp_chunk))
+        # Add leftover words if any
+        if word_buffer:
+            sentences.append(' '.join(word_buffer))
 
-        # Debug log
+        # Debug
         logger.info(f"Split text into {len(sentences)} sentences: {sentences}")
         return sentences
+
 
 
     def __convert_to_16_bit_wav(self, data: NDArray[Any]) -> NDArray[Any]:
