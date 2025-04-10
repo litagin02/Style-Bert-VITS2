@@ -170,6 +170,18 @@ class TTSModel:
         mean = self.__style_vectors[0]
         xvec = mean + (xvec - mean) * weight
         return xvec
+    # Function to split text based on punctuation and newlines
+    def split_text_by_punctuation_and_newlines(self, text):
+        import re
+        # Define a regex pattern to split after sentence-ending punctuation or newlines
+        pattern = r'([。！？、．.!]\s*|[\n])'  # Split *after* punctuation followed by optional whitespace, or newline
+        chunks = [chunk.strip() for chunk in re.split(pattern, text) if chunk.strip()]
+        # Filter out standalone punctuation chunks that might remain
+        sentences = [chunk for chunk in chunks if not re.fullmatch(r'[。！？、．.! \n]+', chunk)]
+
+        # Debugging log
+        logger.info(f"Split text into {len(sentences)} sentences: {sentences}")
+        return sentences
 
     def __convert_to_16_bit_wav(self, data: NDArray[Any]) -> NDArray[Any]:
         """
@@ -310,8 +322,9 @@ class TTSModel:
                 audio = self.__convert_to_16_bit_wav(audio)
                 yield (sr, audio)
         else:
-            # Split text by lines (sentences) and process each incrementally
-            texts = [t for t in text.split("\n") if t != ""]
+            texts = self.split_text_by_punctuation_and_newlines(text)
+            texts = [t for t in texts if t != ""]  # Remove empty lines
+            
             with torch.no_grad():
                 for i, t in enumerate(texts):
                     audio = infer(
