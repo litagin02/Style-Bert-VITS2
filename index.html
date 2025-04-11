@@ -110,7 +110,7 @@
 
         async function startStreaming() {
             const text = document.getElementById('textInput').value;
-            const url = `http://18.176.199.184:5000/voice?text=${encodeURIComponent(text)}&model_id=13&speaker_name=saotome&speaker_id=1&sdp_ratio=0.2&noise=0.6&noisew=0.8&length=1&language=EN&auto_split=true&split_interval=0.5&assist_text_weight=1&style=Neutral&style_weight=5&pitch_scale=1&intonation_scale=1`;
+            const url = `http://52.68.33.60:5000/voice?text=${encodeURIComponent(text)}&model_id=13&speaker_name=saotome&speaker_id=1&sdp_ratio=0.2&noise=0.6&noisew=0.8&length=1&language=EN&auto_split=true&split_interval=0.5&assist_text_weight=1&style=Neutral&style_weight=5&pitch_scale=1&intonation_scale=1`;
             const headers = {
                 "X-Service-Name": "ruby-service",
                 "X-Signature": "c9fcbe44e4ef8525ee5b1f60e5bf53574cd809503c5b82c72194fcc58b0fd5e2"
