@@ -247,6 +247,7 @@ if __name__ == "__main__":
         assist_text_weight: float,
         style: str,
         style_weight: float,
+        improved_split: bool,
     ) -> Generator[bytes, None, None]:
         """Generate WAV audio segments as bytes."""
         for sr, audio_segment in model.infer(
@@ -265,6 +266,7 @@ if __name__ == "__main__":
             use_assist_text=bool(assist_text),
             style=style,
             style_weight=style_weight,
+            improved_split=improved_split,
         ):
             buffer = BytesIO()
             wav_write(buffer, sr, audio_segment)
@@ -323,6 +325,9 @@ if __name__ == "__main__":
         reference_audio_path: Optional[str] = Query(
             None, description="スタイルを音声ファイルで行う"
         ),
+        improved_split: bool = Query(
+            False, description="分割時の音声の切れ目を改善する"
+        ),
     ):
         """Stream text-to-speech audio incrementally (e.g., sentence by sentence)."""
         logger.info(
@@ -371,6 +376,7 @@ if __name__ == "__main__":
                 assist_text_weight=assist_text_weight,
                 style=style,
                 style_weight=style_weight,
+                improved_split=improved_split,
             ),
             media_type="audio/wav",
         )

@@ -257,6 +257,7 @@ class TTSModel:
         given_tone: Optional[list[int]] = None,
         pitch_scale: float = 1.0,
         intonation_scale: float = 1.0,
+        improved_split: bool = False,
     ) -> Generator[tuple[int, NDArray[Any]], None, None]:
         """
         テキストから音声を合成する。
@@ -337,6 +338,54 @@ class TTSModel:
                     )
                 audio = self.__convert_to_16_bit_wav(audio)
                 yield (sr, audio)
+        elif line_split and not improved_split:
+            texts = text.split("\n")
+            texts = [t for t in texts if t != ""]
+            audios = []
+            with torch.no_grad():
+                for i, t in enumerate(texts):
+                    audios.append(
+                        infer(
+                            text=t,
+                            sdp_ratio=sdp_ratio,
+                            noise_scale=noise,
+                            noise_scale_w=noise_w,
+                            length_scale=length,
+                            sid=speaker_id,
+                            language=language,
+                            hps=self.hyper_parameters,
+                            net_g=self.__net_g,
+                            device=self.device,
+                            assist_text=assist_text,
+                            assist_text_weight=assist_text_weight,
+                            style_vec=style_vector,
+                        )
+                    )
+                    if i != len(texts) - 1:
+                        audios.append(np.zeros(int(44100 * split_interval)))
+                audio = np.concatenate(audios)
+                if not (pitch_scale == 1.0 and intonation_scale == 1.0):
+                    _, audio = adjust_voice(
+                        fs=sr,
+                        wave=audio,
+                        pitch_scale=pitch_scale,
+                        intonation_scale=intonation_scale,
+                    )
+                
+                audio = self.__convert_to_16_bit_wav(audio)
+                yield (sr, audio)
+        # logger.info("Audio data generated successfully")
+        # if not (pitch_scale == 1.0 and intonation_scale == 1.0):
+        #     _, audio = adjust_voice(
+        #         fs=self.hyper_parameters.data.sampling_rate,
+        #         wave=audio,
+        #         pitch_scale=pitch_scale,
+        #         intonation_scale=intonation_scale,
+        #     )
+        # audio = self.__convert_to_16_bit_wav(audio)
+        # return (self.hyper_parameters.data.sampling_rate, audio)
+
+
         else:
             texts = self.split_text_by_punctuation_and_newlines(text)
             texts = [t for t in texts if t != ""]  # Remove empty lines
