@@ -1,6 +1,10 @@
 import argparse
 from pathlib import Path
 
+# Apply patch for gradio_client bug before importing gradio
+from gradio_client_patch import patch_gradio_client
+patch_gradio_client()
+
 import gradio as gr
 import torch
 
