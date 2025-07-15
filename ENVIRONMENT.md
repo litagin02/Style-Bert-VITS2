@@ -111,3 +111,39 @@ chmod +x setup-env.sh
 3. **仮想環境の使用**
    - 必ず仮想環境を使用すること
    - グローバル環境での実行は推奨しない
+
+
+● 使用方法
+
+  必要なファイル構成
+
+  モデルフォルダに以下のファイルが必要です：
+  - model.safetensors - 変換元のモデルファイル
+  - config.json - モデル設定ファイル
+  - style_vectors.npy - スタイルベクターファイル
+
+
+## ONNX変換方法
+
+  1. 単一モデルの変換
+  python convert_onnx.py --model
+  model_assets/koharune-ami/koharune-ami.safetensors
+
+  2. ディレクトリ内の全モデルを変換
+  python convert_onnx.py --model model_assets/
+
+  オプション
+
+  - --force-convert - 既存のONNXファイルを上書き
+  - --aivm - SafetensorsからAIVMファイルを生成
+  - --aivmx - ONNXからAIVMXファイルを生成
+
+  実行例
+
+  # 強制的に再変換
+  python convert_onnx.py --model model_assets/model.safetensors --force-convert        
+
+  # AIVM/AIVMXファイルも生成
+  python convert_onnx.py --model model_assets/model.safetensors --aivm --aivmx
+
+  変換後、同じディレクトリにmodel.onnxが生成されます。
