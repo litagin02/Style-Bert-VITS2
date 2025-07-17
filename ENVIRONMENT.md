@@ -1,104 +1,147 @@
-# Style-Bert-VITS2 動作環境
+# Style-Bert-VITS2 環境構築ガイド
 
-## 動作確認済み環境
+## 🚀 クイックスタート
+
+### 自動セットアップ（推奨）
+
+```powershell
+# PowerShellで実行
+.\setup.ps1
+```
+
+### 手動セットアップ
+
+```powershell
+# 1. 既存環境の削除と作成
+Remove-Item venv -Recurse -Force -ErrorAction SilentlyContinue
+python -m pip install uv
+uv venv venv --python 3.10.11
+
+# 2. 有効化
+.\venv\Scripts\Activate.ps1
+
+# 3. PyTorchインストール（CUDA 11.8）
+uv pip install "torch<2.4" "torchaudio<2.4" --index-url https://download.pytorch.org/whl/cu118
+
+# 4. その他の依存関係
+uv pip install -r requirements.txt
+
+# 5. 初期化
+python initialize.py
+```
+
+### Linux/macOS
+```bash
+# 既存の仮想環境がある場合は削除
+rm -rf venv 2>/dev/null
+
+# セットアップ
+python3 -m pip install uv
+uv venv --python 3.10.11
+source venv/bin/activate
+uv pip install "torch<2.4" "torchaudio<2.4" --index-url https://download.pytorch.org/whl/cu118
+uv pip install -r requirements.txt
+python initialize.py
+```
+
+### サーバー起動（2回目以降）
+```bash
+# Windows
+venv\Scripts\activate.bat && python server_editor.py
+
+# Linux/macOS
+source venv/bin/activate && python server_editor.py
+```
+
+アクセス: http://localhost:8000
+
+## 📋 動作環境
 
 ### 必須要件
-- **Python**: 3.10.11 (3.9-3.11で動作可能だが、3.10.11推奨)
+- **Python**: 3.10.11（推奨）※3.9-3.11で動作可能
 - **OS**: Windows 10/11, Ubuntu 20.04+, macOS
 - **GPU**: NVIDIA GPU推奨（CUDA対応）
 
-### 重要なバージョン固定
+### 重要なパッケージバージョン
+| パッケージ | バージョン | 備考 |
+|-----------|-----------|------|
+| gradio | 4.36.1 | 固定必須 |
+| fastapi | <0.113.0 | 0.113.0以降は非互換 |
+| pydantic | >=2.0,<3.0 | v2必須 |
+| numpy | 1.24.3 | 1.26.4はエラーの可能性 |
+| protobuf | 4.25.0 | onnxとの互換性のため |
+| onnx | 1.16.2 | protobuf 4.25.0と互換 |
+| aivmlib | - | オプション（onnx>=1.17.0が必要） |
+| torch | <2.4 | - |
 
-#### 1. Gradio関連
-```
-gradio==4.36.1
-gradio-client==1.0.1  # 自動でインストールされる
-```
 
-#### 2. Pydantic関連
-```
-pydantic>=2.0,<3.0
-pydantic-core>=2.20.1
-```
+## 🔧 トラブルシューティング
 
-#### 3. FastAPI関連（重要！）
-```
-fastapi<0.113.0  # 0.113.0以降はGradioと互換性問題あり
-starlette<0.39.0
-uvicorn>=0.30.1
-```
+### よくあるエラーと対処法
 
-#### 4. PyTorch関連
-```
-torch<2.4
-torchaudio<2.4
-```
-
-## セットアップ方法
-
-### 方法1: 通常のpip（安定）
+#### 1. 白画面になる
 ```bash
-# 既存環境のクリーンアップ
-pip uninstall gradio gradio-client pydantic fastapi -y
-
-# 新規インストール
-python -m venv venv
-venv\Scripts\activate.bat  # Windowsの場合
-source venv/bin/activate   # Linux/macOSの場合
-
-pip install -r requirements.txt
+# gradio-clientのバージョン不整合が原因
+uv pip install gradio==4.36.1
 ```
 
-### 方法2: uv使用（高速）
+#### 2. ONNX関連エラー (ImportError: cannot import name 'ONNX_ML')
 ```bash
-# uvのインストール
-pip install uv
-
-# 環境構築
-uv venv --python 3.10.11
-venv\Scripts\activate.bat
-uv pip install -r requirements.txt
+# protobufバージョン競合の解決
+uv pip uninstall onnx onnxsim protobuf
+uv pip install protobuf==4.25.0
+uv pip install onnx==1.16.2 onnxsim
 ```
 
-### 方法3: 自動セットアップスクリプト
+#### 3. NumPy関連エラー (No module named 'numpy.core._multiarray_umath')
+```bash
+# NumPyの再インストール
+uv pip uninstall numpy
+uv pip install numpy==1.24.3
+```
+
+#### 4. ポート8000が既に使用されている
 ```bash
 # Windows
-setup-env.bat
-
-# Windows (uv版・高速)
-setup-env-uv.bat
+netstat -ano | findstr :8000
+taskkill //PID [PID番号] //F
 
 # Linux/macOS
-chmod +x setup-env.sh
-./setup-env.sh
+lsof -i :8000
+kill -9 [PID番号]
 ```
 
-## トラブルシューティング
+#### 5. FastAPI関連エラー (PydanticSchemaGenerationError)
+```bash
+# FastAPIのバージョン制限
+uv pip install "fastapi<0.113.0"
+```
 
-### 1. 白画面になる場合
-- gradio-clientのバージョン不整合が原因
-- `pip install gradio==4.36.1`で解決
+## 📦 ONNX変換機能
 
-### 2. TypeError: argument of type 'bool' is not iterable
-- pydanticのバージョン問題
-- pydantic v2を使用し、コードもv2対応済み
+### 必要なファイル構成
+モデルフォルダに以下のファイルが必要：
+- `model.safetensors` - 変換元のモデルファイル
+- `config.json` - モデル設定ファイル
+- `style_vectors.npy` - スタイルベクターファイル
 
-### 3. PydanticSchemaGenerationError (starlette.requests.Request)
-- FastAPI 0.113.0以降の非互換性が原因
-- `pip install "fastapi<0.113.0"`で解決
+### 使用方法
+```bash
+# 全モデルを変換
+python convert_onnx.py --model model_assets/
 
-### 4. pyopenjtalk関連エラー
-- 日本語処理用のワーカープロセスが必要
-- 自動的に起動されるが、エラーが出る場合は再起動
+# 単一モデルを変換
+python convert_onnx.py --model model_assets/model.safetensors
 
-## バージョン履歴
+# 強制的に再変換
+python convert_onnx.py --model model_assets/ --force-convert
 
-### 最新版
-- gradio 4.36.1 + pydantic v2対応
-- FastAPI < 0.113.0制限追加
-- pydantic v1からv2への移行完了
+# AIVM/AIVMX形式も生成（aivmlibが必要 - 別途インストール）
+# uv pip install onnx>=1.17.0 aivmlib
+python convert_onnx.py --model model_assets/ --aivm --aivmx
+```
 
-## 注意事項
+## ⚠️ 注意事項
 
 1. **バージョンを勝手に更新しない**
    - 特にgradio、fastapi、pydanticは相互依存が複雑
@@ -110,40 +153,11 @@ chmod +x setup-env.sh
 
 3. **仮想環境の使用**
    - 必ず仮想環境を使用すること
-   - グローバル環境での実行は推奨しない
+   - グローバル環境での実行は非推奨
 
+## 環境確認
 
-● 使用方法
-
-  必要なファイル構成
-
-  モデルフォルダに以下のファイルが必要です：
-  - model.safetensors - 変換元のモデルファイル
-  - config.json - モデル設定ファイル
-  - style_vectors.npy - スタイルベクターファイル
-
-
-## ONNX変換方法
-
-  1. 単一モデルの変換
-  python convert_onnx.py --model
-  model_assets/koharune-ami/koharune-ami.safetensors
-
-  2. ディレクトリ内の全モデルを変換
-  python convert_onnx.py --model model_assets/
-
-  オプション
-
-  - --force-convert - 既存のONNXファイルを上書き
-  - --aivm - SafetensorsからAIVMファイルを生成
-  - --aivmx - ONNXからAIVMXファイルを生成
-
-  実行例
-
-  # 強制的に再変換
-  python convert_onnx.py --model model_assets/model.safetensors --force-convert        
-
-  # AIVM/AIVMXファイルも生成
-  python convert_onnx.py --model model_assets/model.safetensors --aivm --aivmx
-
-  変換後、同じディレクトリにmodel.onnxが生成されます。
+```powershell
+# 環境チェック
+.\check-env.ps1
+```

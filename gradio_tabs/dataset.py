@@ -177,9 +177,10 @@ def create_dataset_app() -> gr.Blocks:
                     value=True,
                 )
                 hf_repo_id = gr.Dropdown(
-                    ["openai/whisper", "kotoba-tech/kotoba-whisper-v1.1"],
+                    ["openai/whisper", "kotoba-tech/kotoba-whisper-v1.1", "litagin/anime-whisper"],
                     label="HuggingFaceのWhisperモデル",
                     value="openai/whisper",
+                    info="anime-whisperはアニメ音声に特化したモデルです",
                 )
                 compute_type = gr.Dropdown(
                     [

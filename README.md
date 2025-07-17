@@ -127,6 +127,22 @@ model_assets
 - `App.bat`をダブルクリックか`python app.py`したところの「データセット作成」タブから、音声ファイルを適切な長さにスライスし、その後に文字の書き起こしを自動で行えます。または`Dataset.bat`をダブルクリックでもその単独タブが開きます。
 - 指示に従った後、下の「学習」タブでそのまま学習を行うことができます。
 
+##### anime-whisperを使った文字起こし（New!）
+
+アニメ音声に特化した[anime-whisper](https://huggingface.co/litagin/anime-whisper)モデルを使用することで、アニメキャラクターの音声をより正確に文字起こしできます。
+
+- **GUIから使用**: データセット作成タブの「HuggingFaceのWhisperモデル」から「litagin/anime-whisper」を選択
+- **コマンドラインから使用**: `TranscribeAnime.bat`をダブルクリック、またはコマンドラインで以下を実行：
+  ```bash
+  python transcribe.py --model_name "モデル名" --use_anime_whisper
+  ```
+
+anime-whisperは特にアニメ・ゲーム・VTuberなどの音声データの文字起こしに優れています。
+
+**注意**: 
+- anime-whisperは初期プロンプト（initial_prompt）との相性が悪いため、anime-whisperを使用する場合は自動的に初期プロンプトが無効化されます。
+- GPUを使用する場合は、CUDA対応のPyTorchが必要です。`install_cuda_torch.bat`を実行してCUDA版をインストールしてください。
+
 #### 学習WebUI
 
 - `App.bat`をダブルクリックか`python app.py`して開くWebUIの「学習」タブから指示に従ってください。または`Train.bat`をダブルクリックでもその単独タブが開きます。
