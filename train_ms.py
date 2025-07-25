@@ -217,7 +217,7 @@ def run():
         writer = SummaryWriter(log_dir=model_dir)
         writer_eval = SummaryWriter(log_dir=os.path.join(model_dir, "eval"))
     train_dataset = TextAudioSpeakerLoader(hps.data.training_files, hps.data)
-    collate_fn = TextAudioSpeakerCollate()
+    collate_fn = TextAudioSpeakerCollate(use_jp_extra=getattr(hps.data, "use_jp_extra", False))
     if not args.not_use_custom_batch_sampler:
         train_sampler = DistributedBucketSampler(
             train_dataset,
@@ -286,6 +286,8 @@ def run():
             0.1,
             gin_channels=hps.model.gin_channels if hps.data.n_speakers != 0 else 0,
         ).cuda(local_rank)
+    else:
+        net_dur_disc = None
     if hps.model.use_spk_conditioned_encoder is True:
         if hps.data.n_speakers == 0:
             raise ValueError(
