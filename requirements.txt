@@ -28,3 +28,4 @@ transformers
 umap-learn
 onnx==1.16.2
 onnxsim
+wandb

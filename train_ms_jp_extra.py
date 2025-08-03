@@ -215,6 +215,20 @@ def run():
         # logger = utils.get_logger(hps.model_dir)
         # logger.info(hps)
         utils.check_git_hash(model_dir)
+        try:
+            import wandb
+            wandb.init(project="Style-Bert-VITS2-Stable", name=config.model_name, config=hps, sync_tensorboard=True)
+            # Send notification on training start
+            if not args.skip_default_style:
+                wandb.alert(
+                    title=f"🚀「{config.model_name}」の学習を開始しました",
+                    text="モデル設定とハイパーパラメータはwandbダッシュボードで確認できます。",
+                    level=wandb.AlertLevel.INFO,
+                    wait_duration=0
+                )
+        except (ImportError, AttributeError):
+            print("wandb not installed or configured, skipping wandb logging")
+            wandb = None
         writer = SummaryWriter(log_dir=model_dir)
         writer_eval = SummaryWriter(log_dir=os.path.join(model_dir, "eval"))
     train_dataset = TextAudioSpeakerLoader(hps.data.training_files, hps.data)
@@ -948,6 +962,25 @@ def train_and_evaluate(
                     # images=image_dict,
                     scalars=scalar_dict,
                 )
+
+            # 1000ステップごとのアラート通知 (log_intervalとは独立してチェック)
+            if global_step > 0 and global_step % 1000 == 0:
+                try:
+                    if wandb is not None:
+                        wandb.alert(
+                            title=f"🎉 学習ステップ {global_step} 到達",
+                            text=f"""
+                            ### 💡 学習進捗
+                            - **Generator Loss**: {loss_gen_all.item():.4f}
+                            - **Discriminator Loss**: {loss_disc_all.item():.4f}
+                            - **学習率**: {optim_g.param_groups[0]['lr']}
+                            """,
+                            level=wandb.AlertLevel.INFO,
+                            wait_duration=0 # 即時送信
+                        )
+                except (NameError, AttributeError):
+                    # wandbがimportされていないか、alert関数がない場合
+                    pass
 
             if (
                 global_step % hps.train.eval_interval == 0
