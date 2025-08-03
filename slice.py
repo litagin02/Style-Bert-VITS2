@@ -68,7 +68,7 @@ def split_wav(
     min_silence_dur_ms: int = 700,
     time_suffix: bool = False,
 ) -> tuple[float, int]:
-    margin: int = 200  # ミリ秒単位で、音声の前後に余裕を持たせる
+    margin: int = 400  # ミリ秒単位で、音声の前後に余裕を持たせる
     speech_timestamps = get_stamps(
         vad_model=vad_model,
         utils=utils,
