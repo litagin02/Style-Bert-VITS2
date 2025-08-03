@@ -5,7 +5,8 @@ dist/
 .coverage
 .ipynb_checkpoints/
 .ruff_cache/
-
+wandb
+Data/*
 /*.yml
 !/default_config.yml
 /bert/*/*.bin
@@ -41,3 +42,4 @@ safetensors.ipynb
 *.dic
 
 playground.ipynb
+Data
