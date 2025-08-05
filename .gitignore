@@ -6,6 +6,7 @@ dist/
 .ipynb_checkpoints/
 .ruff_cache/
 wandb
+.env
 Data/*
 /*.yml
 !/default_config.yml
