@@ -114,6 +114,41 @@ class TTSModel:
             hps=self.hyper_parameters,
         )
 
+    def unload(self) -> None:
+        """
+        音声合成モデルとスタイル推論モデルをメモリから解放する。
+        """
+        # 音声合成モデルの解放
+        if self.__net_g is not None:
+            # モデルをCPUに移動してからメモリを解放
+            self.__net_g.cpu()
+            del self.__net_g
+            self.__net_g = None
+        
+        # スタイルベクトル推論モデルの解放
+        if self.__style_vector_inference is not None:
+            del self.__style_vector_inference
+            self.__style_vector_inference = None
+        
+        # BERT モデルの解放を試みる
+        try:
+            from style_bert_vits2.nlp import bert_models
+            # 使用されている言語のBERTモデルをアンロード
+            for lang in Languages:
+                bert_models.unload_model(lang)
+                bert_models.unload_tokenizer(lang)
+        except Exception:
+            # BERT モデルの解放に失敗しても続行
+            pass
+        
+        # GPU メモリのクリア
+        if torch.cuda.is_available() and self.device == "cuda":
+            torch.cuda.empty_cache()
+        
+        # ガベージコレクションの実行
+        import gc
+        gc.collect()
+
     def __get_style_vector(self, style_id: int, weight: float = 1.0) -> NDArray[Any]:
         """
         スタイルベクトルを取得する。
@@ -437,6 +472,12 @@ class TTSModelHolder:
         if model_path not in self.model_files_dict[model_name]:
             raise ValueError(f"Model file `{model_path}` is not found")
         if self.current_model is None or self.current_model.model_path != model_path:
+            # 既存のモデルがある場合は解放する
+            if self.current_model is not None:
+                self.current_model.unload()
+                del self.current_model
+                self.current_model = None
+            
             self.current_model = TTSModel(
                 model_path=model_path,
                 config_path=self.root_dir / model_name / "config.json",
@@ -466,6 +507,13 @@ class TTSModelHolder:
                 gr.Button(interactive=True, value="音声合成"),
                 gr.Dropdown(choices=speakers, value=speakers[0]),  # type: ignore
             )
+        
+        # 既存のモデルがある場合は解放する
+        if self.current_model is not None:
+            self.current_model.unload()
+            del self.current_model
+            self.current_model = None
+        
         self.current_model = TTSModel(
             model_path=model_path,
             config_path=self.root_dir / model_name / "config.json",

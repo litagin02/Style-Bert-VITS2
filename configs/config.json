@@ -21,13 +21,16 @@
     "freeze_JP_bert": false,
     "freeze_EN_bert": false,
     "freeze_style": false,
-    "freeze_encoder": false
+    "freeze_encoder": false,
+    "use_schedulefree": true,
+    "optimizer": "RAdam",
+    "warmup_steps": 1000
   },
   "data": {
     "use_jp_extra": false,
     "training_files": "Data/Dummy/train.list",
     "validation_files": "Data/Dummy/val.list",
-    "max_wav_value": 32768.0,
+    "max_wav_value": 36408.89,
     "sampling_rate": 44100,
     "filter_length": 2048,
     "hop_length": 512,

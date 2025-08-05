@@ -40,16 +40,30 @@ def load_checkpoint(
     if (
         optimizer is not None
         and not skip_optimizer
-        and checkpoint_dict["optimizer"] is not None
+        and checkpoint_dict.get("optimizer") is not None
     ):
-        optimizer.load_state_dict(checkpoint_dict["optimizer"])
-    elif optimizer is None and not skip_optimizer:
-        # else:      Disable this line if Infer and resume checkpoint,then enable the line upper
-        new_opt_dict = optimizer.state_dict()  # type: ignore
-        new_opt_dict_params = new_opt_dict["param_groups"][0]["params"]
-        new_opt_dict["param_groups"] = checkpoint_dict["optimizer"]["param_groups"]
-        new_opt_dict["param_groups"][0]["params"] = new_opt_dict_params
-        optimizer.load_state_dict(new_opt_dict)  # type: ignore
+        try:
+            # Check if parameter groups match
+            saved_groups = len(checkpoint_dict["optimizer"]["param_groups"])
+            current_groups = len(optimizer.param_groups)
+            
+            if saved_groups == current_groups:
+                # Try to load optimizer state
+                optimizer.load_state_dict(checkpoint_dict["optimizer"])
+                logger.info("Successfully loaded optimizer state")
+            else:
+                logger.warning(
+                    f"Parameter group mismatch: saved {saved_groups} vs current {current_groups}. "
+                    "Skipping optimizer state loading. This may be due to model freezing changes."
+                )
+        except ValueError as e:
+            logger.warning(
+                f"Failed to load optimizer state: {e}\n"
+                "This may be due to changes in model architecture or freezing settings. "
+                "Training will continue with fresh optimizer state."
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error loading optimizer state: {e}")
 
     saved_state_dict = checkpoint_dict["model"]
     if hasattr(model, "module"):

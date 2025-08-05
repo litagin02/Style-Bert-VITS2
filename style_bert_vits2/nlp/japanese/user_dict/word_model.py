@@ -9,7 +9,7 @@ from enum import Enum
 from re import findall, fullmatch
 from typing import List, Optional
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 
 USER_DICT_MIN_PRIORITY = 0
@@ -39,10 +39,10 @@ class UserDictWord(BaseModel):
     mora_count: Optional[int] = Field(title="モーラ数", default=None)
     accent_associative_rule: str = Field(title="アクセント結合規則")
 
-    class Config:
-        validate_assignment = True
+    model_config = ConfigDict(validate_assignment=True)
 
-    @validator("surface")
+    @field_validator("surface")
+    @classmethod
     def convert_to_zenkaku(cls, surface):
         return surface.translate(
             str.maketrans(
@@ -51,7 +51,8 @@ class UserDictWord(BaseModel):
             )
         )
 
-    @validator("pronunciation", pre=True)
+    @field_validator("pronunciation", mode="before")
+    @classmethod
     def check_is_katakana(cls, pronunciation):
         if not fullmatch(r"[ァ-ヴー]+", pronunciation):
             raise ValueError("発音は有効なカタカナでなくてはいけません。")
@@ -75,8 +76,10 @@ class UserDictWord(BaseModel):
                     )
         return pronunciation
 
-    @validator("mora_count", pre=True, always=True)
-    def check_mora_count_and_accent_type(cls, mora_count, values):
+    @field_validator("mora_count", mode="before")
+    @classmethod
+    def check_mora_count_and_accent_type(cls, mora_count, info):
+        values = info.data
         if "pronunciation" not in values or "accent_type" not in values:
             # 適切な場所でエラーを出すようにする
             return mora_count

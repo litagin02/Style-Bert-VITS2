@@ -60,6 +60,9 @@ def transcribe_files_with_hf_whisper(
     import torch
     from transformers import WhisperProcessor, pipeline
 
+    # GPU専用（CUDAチェックなし）
+    device = "cuda"
+    
     processor: WhisperProcessor = WhisperProcessor.from_pretrained(model_id)
     generate_kwargs: dict[str, Any] = {
         "language": language,
@@ -68,21 +71,25 @@ def transcribe_files_with_hf_whisper(
         "no_repeat_ngram_size": no_repeat_ngram_size,
     }
     logger.info(f"generate_kwargs: {generate_kwargs}")
+    logger.info(f"Using device: {device}")
 
+    # GPU用にfloat16固定
+    torch_dtype = torch.float16
+    
     pipe = pipeline(
         model=model_id,
         max_new_tokens=128,
         chunk_length_s=30,
         batch_size=batch_size,
-        torch_dtype=torch.float16,
-        device="cuda",
+        torch_dtype=torch_dtype,
+        device=device,
         trust_remote_code=True,
         # generate_kwargs=generate_kwargs,
     )
-    if initial_prompt is not None:
+    if initial_prompt is not None and initial_prompt != "":
         prompt_ids: torch.Tensor = pipe.tokenizer.get_prompt_ids(
             initial_prompt, return_tensors="pt"
-        ).to(device)
+        ).to("cuda")
         generate_kwargs["prompt_ids"] = prompt_ids
 
     dataset = StrListDataset([str(f) for f in audio_files])
@@ -129,6 +136,7 @@ if __name__ == "__main__":
     parser.add_argument("--compute_type", type=str, default="bfloat16")
     parser.add_argument("--use_hf_whisper", action="store_true")
     parser.add_argument("--hf_repo_id", type=str, default="")
+    parser.add_argument("--use_anime_whisper", action="store_true", help="Use anime-whisper model (litagin/anime-whisper)")
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--num_beams", type=int, default=1)
     parser.add_argument("--no_repeat_ngram_size", type=int, default=10)
@@ -149,6 +157,13 @@ if __name__ == "__main__":
     batch_size: int = args.batch_size
     num_beams: int = args.num_beams
     no_repeat_ngram_size: int = args.no_repeat_ngram_size
+
+    # anime-whisperを使う場合の設定
+    if args.use_anime_whisper:
+        args.use_hf_whisper = True
+        args.hf_repo_id = "litagin/anime-whisper"
+        initial_prompt = ""  # anime-whisperはinitial_promptと相性が悪いため空にする
+        logger.info("Using anime-whisper model for transcription (initial_prompt disabled)")
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
 

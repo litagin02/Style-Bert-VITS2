@@ -23,12 +23,39 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 path_config = get_path_config()
 assets_root = path_config.assets_root
 
+# TTSモデルのキャッシュ（simple_tts用）
+_tts_model_cache: dict[str, TTSModel] = {}
+
+# スタイルベクトルのキャッシュ
+_style_vectors_cache: dict[str, np.ndarray] = {}
+
+
+def clear_all_cache():
+    """すべてのキャッシュをクリアし、メモリを解放する"""
+    global _tts_model_cache, _style_vectors_cache
+    
+    # TTSモデルのキャッシュをクリア
+    for model_name, model in _tts_model_cache.items():
+        model.unload()
+        del model
+    _tts_model_cache.clear()
+    
+    # スタイルベクトルのキャッシュをクリア
+    _style_vectors_cache.clear()
+    
+    # メモリ解放
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    import gc
+    gc.collect()
+
 
 def load_safetensors(model_path: Union[str, Path]) -> dict[str, torch.Tensor]:
     result: dict[str, torch.Tensor] = {}
     with safe_open(model_path, framework="pt", device="cpu") as f:
         for k in f.keys():
-            result[k] = f.get_tensor(k)
+            # テンソルを直接CPUにロードし、必要最小限のメモリで保持
+            result[k] = f.get_tensor(k).detach()
     return result
 
 
@@ -59,7 +86,18 @@ def save_recipe(recipe: dict[str, Any], model_name: str):
 
 
 def load_style_vectors(model_name: str) -> np.ndarray:
-    return np.load(assets_root / model_name / "style_vectors.npy")
+    global _style_vectors_cache
+    
+    if model_name not in _style_vectors_cache:
+        # キャッシュサイズ制限（最大10モデル分）
+        if len(_style_vectors_cache) >= 10:
+            # 最も古いエントリを削除
+            oldest_key = next(iter(_style_vectors_cache))
+            _style_vectors_cache.pop(oldest_key)
+        
+        _style_vectors_cache[model_name] = np.load(assets_root / model_name / "style_vectors.npy")
+    
+    return _style_vectors_cache[model_name]
 
 
 def save_style_vectors(style_vectors: np.ndarray, model_name: str):
@@ -338,6 +376,19 @@ def merge_models_usual(
     merged_model_path = assets_root / output_name / f"{output_name}.safetensors"
     merged_model_path.parent.mkdir(parents=True, exist_ok=True)
     save_file(merged_model_weight, merged_model_path)
+    
+    # メモリ解放を強化
+    del model_a_weight
+    del model_b_weight
+    del merged_model_weight
+    
+    # キャッシュもクリアしてメモリを最大限解放
+    clear_all_cache()
+    
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    import gc
+    gc.collect()
 
     receipe = {
         "method": "usual",
@@ -409,6 +460,15 @@ def merge_models_add_diff(
     merged_model_path = assets_root / output_name / f"{output_name}.safetensors"
     merged_model_path.parent.mkdir(parents=True, exist_ok=True)
     save_file(merged_model_weight, merged_model_path)
+    
+    # メモリ解放
+    del model_a_weight
+    del model_b_weight
+    del model_c_weight
+    del merged_model_weight
+    torch.cuda.empty_cache() if torch.cuda.is_available() else None
+    import gc
+    gc.collect()
 
     info = {
         "method": "add_diff",
@@ -484,6 +544,15 @@ def merge_models_weighted_sum(
     merged_model_path = assets_root / output_name / f"{output_name}.safetensors"
     merged_model_path.parent.mkdir(parents=True, exist_ok=True)
     save_file(merged_model_weight, merged_model_path)
+    
+    # メモリ解放
+    del model_a_weight
+    del model_b_weight
+    del model_c_weight
+    del merged_model_weight
+    torch.cuda.empty_cache() if torch.cuda.is_available() else None
+    import gc
+    gc.collect()
 
     info = {
         "method": "weighted_sum",
@@ -565,6 +634,19 @@ def merge_models_add_null(
     merged_model_path = assets_root / output_name / f"{output_name}.safetensors"
     merged_model_path.parent.mkdir(parents=True, exist_ok=True)
     save_file(merged_model_weight, merged_model_path)
+    
+    # メモリ解放を強化
+    del model_a_weight
+    del model_b_weight
+    del merged_model_weight
+    
+    # キャッシュもクリアしてメモリを最大限解放
+    clear_all_cache()
+    
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    import gc
+    gc.collect()
 
     info = {
         "method": "add_null",
@@ -785,12 +867,30 @@ def simple_tts(
 ):
     if model_name == "":
         return "Error: モデル名を入力してください。", None
-    model_path = assets_root / model_name / f"{model_name}.safetensors"
-    config_path = assets_root / model_name / "config.json"
-    style_vec_path = assets_root / model_name / "style_vectors.npy"
-
-    model = TTSModel(model_path, config_path, style_vec_path, device)
-
+    
+    global _tts_model_cache
+    
+    # キャッシュからモデルを取得、なければ新規作成
+    if model_name not in _tts_model_cache:
+        # キャッシュサイズ制限（最大3モデル）
+        if len(_tts_model_cache) >= 3:
+            # 最も古いモデルを削除
+            oldest_key = next(iter(_tts_model_cache))
+            old_model = _tts_model_cache.pop(oldest_key)
+            old_model.unload()
+            del old_model
+            torch.cuda.empty_cache() if torch.cuda.is_available() else None
+            import gc
+            gc.collect()
+        
+        model_path = assets_root / model_name / f"{model_name}.safetensors"
+        config_path = assets_root / model_name / "config.json"
+        style_vec_path = assets_root / model_name / "style_vectors.npy"
+        
+        _tts_model_cache[model_name] = TTSModel(model_path, config_path, style_vec_path, device)
+    
+    model = _tts_model_cache[model_name]
+    
     return (
         "Success: 音声を生成しました。",
         model.infer(text, style=style, style_weight=style_weight),
@@ -832,7 +932,7 @@ def load_styles_gr(model_name_a: str, model_name_b: str):
             label="スタイルのマージリスト",
             placeholder=f"{DEFAULT_STYLE}, {DEFAULT_STYLE},{DEFAULT_STYLE}\nAngry, Angry, Angry",
             value="\n".join(
-                f"{sty_a}, {sty_b}, {sty_a if sty_a != sty_b else ''}{sty_b}"
+                f"{sty_a}, {sty_b}, {sty_a}"
                 for sty_a in styles_a
                 for sty_b in styles_b
             ),
@@ -1169,9 +1269,8 @@ def create_merge_app(model_holder: TTSModelHolder) -> gr.Blocks:
             )
 
             def join_names(*args):
-                if all(arg == DEFAULT_STYLE for arg in args):
-                    return DEFAULT_STYLE
-                return "_".join(args)
+                # A側のスタイル名を採用
+                return args[0] if args else DEFAULT_STYLE
 
             @gr.render(
                 inputs=[
@@ -1518,6 +1617,20 @@ def create_merge_app(model_holder: TTSModelHolder) -> gr.Blocks:
             simple_tts,
             inputs=[new_name, text_input, style, emotion_weight],
             outputs=[tts_info, audio_output],
+        )
+        
+        # キャッシュクリアボタンを追加
+        with gr.Row():
+            clear_cache_btn = gr.Button("メモリキャッシュをクリア", variant="secondary")
+            cache_info = gr.Textbox(label="キャッシュ情報", interactive=False)
+        
+        def clear_cache_and_info():
+            clear_all_cache()
+            return "キャッシュをクリアしました。"
+        
+        clear_cache_btn.click(
+            clear_cache_and_info,
+            outputs=[cache_info]
         )
 
     return app
