@@ -24,7 +24,10 @@
     "freeze_EN_bert": false,
     "freeze_emo": false,
     "freeze_style": false,
-    "freeze_decoder": false
+    "freeze_decoder": false,
+    "use_schedulefree": true,
+    "optimizer": "RAdam",
+    "warmup_steps": 1000
   },
   "data": {
     "use_jp_extra": true,

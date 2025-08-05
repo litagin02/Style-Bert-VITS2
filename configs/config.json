@@ -21,7 +21,10 @@
     "freeze_JP_bert": false,
     "freeze_EN_bert": false,
     "freeze_style": false,
-    "freeze_encoder": false
+    "freeze_encoder": false,
+    "use_schedulefree": true,
+    "optimizer": "RAdam",
+    "warmup_steps": 1000
   },
   "data": {
     "use_jp_extra": false,

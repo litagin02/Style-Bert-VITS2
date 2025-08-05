@@ -14,6 +14,12 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
+try:
+    from schedulefree import AdamWScheduleFree, RAdamScheduleFree
+    SCHEDULEFREE_AVAILABLE = True
+except ImportError:
+    SCHEDULEFREE_AVAILABLE = False
+
 # logging.getLogger("numba").setLevel(logging.WARNING)
 import default_style
 from config import get_config
@@ -363,36 +369,95 @@ def run():
             param.requires_grad = False
 
     net_d = MultiPeriodDiscriminator(hps.model.use_spectral_norm).cuda(local_rank)
-    optim_g = torch.optim.AdamW(
-        filter(lambda p: p.requires_grad, net_g.parameters()),
-        hps.train.learning_rate,
-        betas=hps.train.betas,
-        eps=hps.train.eps,
-    )
-    optim_d = torch.optim.AdamW(
-        net_d.parameters(),
-        hps.train.learning_rate,
-        betas=hps.train.betas,
-        eps=hps.train.eps,
-    )
-    if net_dur_disc is not None:
-        optim_dur_disc = torch.optim.AdamW(
-            net_dur_disc.parameters(),
+
+    use_schedulefree = getattr(hps.train, "use_schedulefree", False) and SCHEDULEFREE_AVAILABLE
+
+    if use_schedulefree:
+        optimizer_name = getattr(hps.train, "optimizer", "AdamW")
+        warmup_steps = getattr(hps.train, "warmup_steps", 1000)
+
+        if optimizer_name == "RAdam":
+            logger.info("Using RAdamScheduleFree optimizer.")
+            OptimizerClass = RAdamScheduleFree
+        elif optimizer_name == "AdamW":
+            logger.info("Using AdamWScheduleFree optimizer.")
+            OptimizerClass = AdamWScheduleFree
+        else:
+            logger.warning(f"Unknown optimizer: {optimizer_name}. Falling back to AdamWScheduleFree.")
+            OptimizerClass = AdamWScheduleFree
+            
+        optim_g = OptimizerClass(
+            filter(lambda p: p.requires_grad, net_g.parameters()),
+            lr=hps.train.learning_rate,
+            betas=hps.train.betas,
+            eps=hps.train.eps,
+            warmup_steps=warmup_steps,
+        )
+        optim_d = OptimizerClass(
+            net_d.parameters(),
+            lr=hps.train.learning_rate,
+            betas=hps.train.betas,
+            eps=hps.train.eps,
+            warmup_steps=warmup_steps,
+        )
+        if net_dur_disc is not None:
+            optim_dur_disc = OptimizerClass(
+                net_dur_disc.parameters(),
+                lr=hps.train.learning_rate,
+                betas=hps.train.betas,
+                eps=hps.train.eps,
+                warmup_steps=warmup_steps,
+            )
+        else:
+            optim_dur_disc = None
+        if net_wd is not None:
+            optim_wd = OptimizerClass(
+                net_wd.parameters(),
+                lr=hps.train.learning_rate,
+                betas=hps.train.betas,
+                eps=hps.train.eps,
+                warmup_steps=warmup_steps,
+            )
+        else:
+            optim_wd = None
+        
+        scheduler_g, scheduler_d, scheduler_dur_disc, scheduler_wd = None, None, None, None
+
+    else:
+        if getattr(hps.train, "use_schedulefree", False):
+            logger.warning("`use_schedulefree` is true but schedulefree is not installed. Falling back to default scheduler.")
+        logger.info("Using AdamW optimizer with LambdaLR scheduler.")
+        optim_g = torch.optim.AdamW(
+            filter(lambda p: p.requires_grad, net_g.parameters()),
             hps.train.learning_rate,
             betas=hps.train.betas,
             eps=hps.train.eps,
         )
-    else:
-        optim_dur_disc = None
-    if net_wd is not None:
-        optim_wd = torch.optim.AdamW(
-            net_wd.parameters(),
+        optim_d = torch.optim.AdamW(
+            net_d.parameters(),
             hps.train.learning_rate,
             betas=hps.train.betas,
             eps=hps.train.eps,
         )
-    else:
-        optim_wd = None
+        if net_dur_disc is not None:
+            optim_dur_disc = torch.optim.AdamW(
+                net_dur_disc.parameters(),
+                hps.train.learning_rate,
+                betas=hps.train.betas,
+                eps=hps.train.eps,
+            )
+        else:
+            optim_dur_disc = None
+        if net_wd is not None:
+            optim_wd = torch.optim.AdamW(
+                net_wd.parameters(),
+                hps.train.learning_rate,
+                betas=hps.train.betas,
+                eps=hps.train.eps,
+            )
+        else:
+            optim_wd = None
+
     net_g = DDP(
         net_g,
         device_ids=[local_rank],
@@ -512,35 +577,38 @@ def run():
         finally:
             epoch_str = 1
             global_step = 0
+    
+    if not use_schedulefree:
+        def lr_lambda(epoch):
+            """
+            Learning rate scheduler for warmup and exponential decay.
+            - During the warmup period, the learning rate increases linearly.
+            - After the warmup period, the learning rate decreases exponentially.
+            """
+            if epoch < hps.train.warmup_epochs:
+                return float(epoch) / float(max(1, hps.train.warmup_epochs))
+            else:
+                return hps.train.lr_decay ** (epoch - hps.train.warmup_epochs)
 
-    def lr_lambda(epoch):
-        """
-        Learning rate scheduler for warmup and exponential decay.
-        - During the warmup period, the learning rate increases linearly.
-        - After the warmup period, the learning rate decreases exponentially.
-        """
-        if epoch < hps.train.warmup_epochs:
-            return float(epoch) / float(max(1, hps.train.warmup_epochs))
+        scheduler_last_epoch = epoch_str - 2
+        scheduler_g = torch.optim.lr_scheduler.LambdaLR(
+            optim_g, lr_lambda=lr_lambda, last_epoch=scheduler_last_epoch
+        )
+        scheduler_d = torch.optim.lr_scheduler.LambdaLR(
+            optim_d, lr_lambda=lr_lambda, last_epoch=scheduler_last_epoch
+        )
+        if net_dur_disc is not None:
+            scheduler_dur_disc = torch.optim.lr_scheduler.LambdaLR(
+                optim_dur_disc, lr_lambda=lr_lambda, last_epoch=scheduler_last_epoch
+            )
         else:
-            return hps.train.lr_decay ** (epoch - hps.train.warmup_epochs)
-
-    scheduler_last_epoch = epoch_str - 2
-    scheduler_g = torch.optim.lr_scheduler.LambdaLR(
-        optim_g, lr_lambda=lr_lambda, last_epoch=scheduler_last_epoch
-    )
-    scheduler_d = torch.optim.lr_scheduler.LambdaLR(
-        optim_d, lr_lambda=lr_lambda, last_epoch=scheduler_last_epoch
-    )
-    if net_dur_disc is not None:
-        scheduler_dur_disc = torch.optim.lr_scheduler.LambdaLR(
-            optim_dur_disc, lr_lambda=lr_lambda, last_epoch=scheduler_last_epoch
-        )
-    else:
-        scheduler_dur_disc = None
+            scheduler_dur_disc = None
+        if net_wd is not None:
+            scheduler_wd = torch.optim.lr_scheduler.LambdaLR(
+                optim_wd, lr_lambda=lr_lambda, last_epoch=scheduler_last_epoch
+            )
+    
     if net_wd is not None:
-        scheduler_wd = torch.optim.lr_scheduler.LambdaLR(
-            optim_wd, lr_lambda=lr_lambda, last_epoch=scheduler_last_epoch
-        )
         wl = WavLMLoss(
             hps.model.slm.model,
             net_wd,
@@ -548,7 +616,8 @@ def run():
             hps.model.slm.sr,
         ).to(local_rank)
     else:
-        scheduler_wd = None
+        if 'use_schedulefree' not in locals() or not use_schedulefree:
+            scheduler_wd = None
         wl = None
     scaler = GradScaler(enabled=hps.train.bf16_run)
     logger.info("Start training.")
@@ -599,11 +668,13 @@ def run():
                 pbar,
                 initial_step,
             )
-        scheduler_g.step()
-        scheduler_d.step()
-        if net_dur_disc is not None:
+        if scheduler_g:
+            scheduler_g.step()
+        if scheduler_d:
+            scheduler_d.step()
+        if scheduler_dur_disc:
             scheduler_dur_disc.step()
-        if net_wd is not None:
+        if scheduler_wd:
             scheduler_wd.step()
         if epoch == hps.train.epochs:
             # Save the final models
