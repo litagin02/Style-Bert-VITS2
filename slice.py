@@ -63,6 +63,7 @@ def split_wav(
     utils: Any,
     audio_file: Path,
     target_dir: Path,
+    num_digits: int,
     min_sec: float = 2,
     max_sec: float = 12,
     min_silence_dur_ms: int = 700,
@@ -100,12 +101,82 @@ def split_wav(
         if time_suffix:
             file = f"{file_name}-{int(start_ms)}-{int(end_ms)}.wav"
         else:
-            file = f"{file_name}-{i}.wav"
+            file = f"{file_name}-{i:0{num_digits}d}.wav"
         sf.write(str(target_dir / file), segment, sr)
         total_time_ms += end_ms - start_ms
         count += 1
 
     return total_time_ms / 1000, count
+
+
+# Silero VADのモデルは、同じインスタンスで並列処理するとおかしくなるらしい
+# ワーカーごとにモデルをロードするようにするため、Queueを使って処理する
+def process_queue(
+	# プレビューと本処理を同じワーカーで実行
+    q: Queue[Optional[Path]],
+    result_queue: Queue,
+    error_queue: Queue,
+    min_sec: float,
+    max_sec: float,
+    min_silence_dur_ms: int,
+    input_dir: Path,
+    output_dir: Path,
+    time_suffix: bool,
+    num_digits_holder: dict,
+    phase_queue: Queue,
+):
+    # モデルをダウンロードしておく
+    vad_model, utils = torch.hub.load(
+        repo_or_dir="litagin02/silero-vad",
+        model="silero_vad",
+        onnx=True,
+        trust_repo=True,
+    )
+
+    while True:
+        file = q.get()
+        if file is None:  # 終了シグナルを確認
+            q.task_done()
+            break
+
+        phase = phase_queue.get()
+        try:
+            if phase == "preview":
+                count = len(
+                    get_stamps(
+                        vad_model=vad_model,
+                        utils=utils,
+                        audio_file=file,
+                        min_silence_dur_ms=min_silence_dur_ms,
+                        min_sec=min_sec,
+                        max_sec=max_sec,
+                    )
+                )
+                result_queue.put(count)
+            elif phase == "process":
+                rel_path = file.relative_to(input_dir)
+                time_sec, count = split_wav(
+                    vad_model=vad_model,
+                    utils=utils,
+                    audio_file=file,
+                    target_dir=output_dir / rel_path.parent,
+                    num_digits=num_digits_holder["num_digits"],
+                    min_sec=min_sec,
+                    max_sec=max_sec,
+                    min_silence_dur_ms=min_silence_dur_ms,
+                    time_suffix=time_suffix,
+                )
+                result_queue.put((time_sec, count))
+        except Exception as e:
+            logger.error(f"Error {'previewing' if phase == 'preview' else 'processing'} {file}: {e}")
+            if phase == "process":
+                error_queue.put((file, e))
+                result_queue.put((0, 0))
+            else:
+                result_queue.put(0)
+        finally:
+            q.task_done()
+            phase_queue.task_done()
 
 
 if __name__ == "__main__":
@@ -169,70 +240,50 @@ if __name__ == "__main__":
         logger.warning(f"Output directory {output_dir} already exists, deleting...")
         shutil.rmtree(output_dir)
 
-    # モデルをダウンロードしておく
-    _ = torch.hub.load(
-        repo_or_dir="litagin02/silero-vad",
-        model="silero_vad",
-        onnx=True,
-        trust_repo=True,
-    )
-
-    # Silero VADのモデルは、同じインスタンスで並列処理するとおかしくなるらしい
-    # ワーカーごとにモデルをロードするようにするため、Queueを使って処理する
-    def process_queue(
-        q: Queue[Optional[Path]],
-        result_queue: Queue[tuple[float, int]],
-        error_queue: Queue[tuple[Path, Exception]],
-    ):
-        # logger.debug("Worker started.")
-        vad_model, utils = torch.hub.load(
-            repo_or_dir="litagin02/silero-vad",
-            model="silero_vad",
-            onnx=True,
-            trust_repo=True,
-        )
-        while True:
-            file = q.get()
-            if file is None:  # 終了シグナルを確認
-                q.task_done()
-                break
-            try:
-                rel_path = file.relative_to(input_dir)
-                time_sec, count = split_wav(
-                    vad_model=vad_model,
-                    utils=utils,
-                    audio_file=file,
-                    target_dir=output_dir / rel_path.parent,
-                    min_sec=min_sec,
-                    max_sec=max_sec,
-                    min_silence_dur_ms=min_silence_dur_ms,
-                    time_suffix=time_suffix,
-                )
-                result_queue.put((time_sec, count))
-            except Exception as e:
-                logger.error(f"Error processing {file}: {e}")
-                error_queue.put((file, e))
-                result_queue.put((0, 0))
-            finally:
-                q.task_done()
-
-    q: Queue[Optional[Path]] = Queue()
-    result_queue: Queue[tuple[float, int]] = Queue()
-    error_queue: Queue[tuple[Path, Exception]] = Queue()
+    q = Queue()
+    result_queue = Queue()
+    error_queue = Queue()
+    phase_queue = Queue()
+    num_digits_holder = {"num_digits": 0}
 
     # ファイル数が少ない場合は、ワーカー数をファイル数に合わせる
     num_processes = min(num_processes, len(audio_files))
 
     threads = [
-        Thread(target=process_queue, args=(q, result_queue, error_queue))
+        Thread(
+            target=process_queue,
+            args=(
+                q, result_queue, error_queue,
+                min_sec, max_sec, min_silence_dur_ms,
+                input_dir, output_dir,
+                time_suffix, num_digits_holder, phase_queue
+            )
+        )
         for _ in range(num_processes)
     ]
     for t in threads:
         t.start()
 
+    for f in audio_files:
+        q.put(f)
+        phase_queue.put("preview")
+
+    max_slices = 0
+    processed_preview = 0
+    while processed_preview < len(audio_files):
+        count = result_queue.get()
+        max_slices = max(max_slices, count)
+        processed_preview += 1
+
+    q.join()
+    phase_queue.join()
+
+    num_digits_holder["num_digits"] = len(str(max_slices))
+
     pbar = tqdm(total=len(audio_files), file=SAFE_STDOUT)
     for file in audio_files:
         q.put(file)
+        phase_queue.put("process")
 
     # result_queueを監視し、要素が追加されるごとに結果を加算しプログレスバーを更新
     total_sec = 0
@@ -245,11 +296,12 @@ if __name__ == "__main__":
 
     # 全ての処理が終わるまで待つ
     q.join()
+    phase_queue.join()
 
     # 終了シグナル None を送る
     for _ in range(num_processes):
         q.put(None)
-
+        phase_queue.put(None)
     for t in threads:
         t.join()
 
