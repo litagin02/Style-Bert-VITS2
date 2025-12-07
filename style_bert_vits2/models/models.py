@@ -39,39 +39,22 @@ class DurationDiscriminator(nn.Module):  # vits2
         self.norm_2 = modules.LayerNorm(filter_channels)
         self.dur_proj = nn.Conv1d(1, filter_channels, 1)
 
-        self.pre_out_conv_1 = nn.Conv1d(
-            2 * filter_channels, filter_channels, kernel_size, padding=kernel_size // 2
+        self.LSTM = nn.LSTM(
+            2 * filter_channels, filter_channels, batch_first=True, bidirectional=True
         )
-        self.pre_out_norm_1 = modules.LayerNorm(filter_channels)
-        self.pre_out_conv_2 = nn.Conv1d(
-            filter_channels, filter_channels, kernel_size, padding=kernel_size // 2
-        )
-        self.pre_out_norm_2 = modules.LayerNorm(filter_channels)
 
         if gin_channels != 0:
             self.cond = nn.Conv1d(gin_channels, in_channels, 1)
 
-        self.output_layer = nn.Sequential(nn.Linear(filter_channels, 1), nn.Sigmoid())
+        self.output_layer = nn.Sequential(
+            nn.Linear(2 * filter_channels, 1), nn.Sigmoid()
+        )
 
-    def forward_probability(
-        self,
-        x: torch.Tensor,
-        x_mask: torch.Tensor,
-        dur: torch.Tensor,
-        g: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+    def forward_probability(self, x: torch.Tensor, dur: torch.Tensor) -> torch.Tensor:
         dur = self.dur_proj(dur)
         x = torch.cat([x, dur], dim=1)
-        x = self.pre_out_conv_1(x * x_mask)
-        x = torch.relu(x)
-        x = self.pre_out_norm_1(x)
-        x = self.drop(x)
-        x = self.pre_out_conv_2(x * x_mask)
-        x = torch.relu(x)
-        x = self.pre_out_norm_2(x)
-        x = self.drop(x)
-        x = x * x_mask
         x = x.transpose(1, 2)
+        x, _ = self.LSTM(x)
         output_prob = self.output_layer(x)
         return output_prob
 
@@ -98,7 +81,7 @@ class DurationDiscriminator(nn.Module):  # vits2
 
         output_probs = []
         for dur in [dur_r, dur_hat]:
-            output_prob = self.forward_probability(x, x_mask, dur, g)
+            output_prob = self.forward_probability(x, dur)
             output_probs.append(output_prob)
 
         return output_probs
@@ -139,9 +122,7 @@ class TransformerCouplingBlock(nn.Module):
             #     isflow=True,
             #     gin_channels=self.gin_channels,
             # )
-            None
-            if share_parameter
-            else None
+            None if share_parameter else None
         )
 
         for i in range(n_flows):
@@ -235,13 +216,49 @@ class StochasticDurationPredictor(nn.Module):
         reverse: bool = False,
         noise_scale: float = 1.0,
     ) -> torch.Tensor:
+        # Debug: Check input x
+        if torch.isnan(x).any():
+            print(f"[DEBUG StochasticDurationPredictor] NaN in input x")
+        if g is not None and torch.isnan(g).any():
+            print(f"[DEBUG StochasticDurationPredictor] NaN in input g")
+
         x = torch.detach(x)
+        # Debug: After detach
+        if torch.isnan(x).any():
+            print(f"[DEBUG StochasticDurationPredictor] NaN in x after detach")
+
         x = self.pre(x)
+        # Debug: After pre
+        if torch.isnan(x).any():
+            print(f"[DEBUG StochasticDurationPredictor] NaN in x after self.pre")
+
         if g is not None:
             g = torch.detach(g)
-            x = x + self.cond(g)
+            # Debug: g after detach
+            if torch.isnan(g).any():
+                print(f"[DEBUG StochasticDurationPredictor] NaN in g after detach")
+
+            cond_g = self.cond(g)
+            # Debug: After cond
+            if torch.isnan(cond_g).any():
+                print(
+                    f"[DEBUG StochasticDurationPredictor] NaN in cond_g (self.cond(g))"
+                )
+
+            x = x + cond_g
+            # Debug: After adding conditioning
+            if torch.isnan(x).any():
+                print(f"[DEBUG StochasticDurationPredictor] NaN in x after x + cond_g")
+
         x = self.convs(x, x_mask)
+        # Debug: After convs
+        if torch.isnan(x).any():
+            print(f"[DEBUG StochasticDurationPredictor] NaN in x after self.convs")
+
         x = self.proj(x) * x_mask
+        # Debug: After proj
+        if torch.isnan(x).any():
+            print(f"[DEBUG StochasticDurationPredictor] NaN in x after self.proj")
 
         if not reverse:
             flows = self.flows
@@ -289,8 +306,31 @@ class StochasticDurationPredictor(nn.Module):
                 torch.randn(x.size(0), 2, x.size(2)).to(device=x.device, dtype=x.dtype)
                 * noise_scale
             )
+            # Debug: Check z after creation
+            if torch.isnan(z).any():
+                print(
+                    f"[DEBUG StochasticDurationPredictor reverse] NaN in z after randn"
+                )
+
             for flow in flows:
+                # Debug: Before flow
+                if torch.isnan(z).any():
+                    print(
+                        f"[DEBUG StochasticDurationPredictor reverse] NaN in z before flow {flow.__class__.__name__}"
+                    )
+                if torch.isnan(x).any():
+                    print(
+                        f"[DEBUG StochasticDurationPredictor reverse] NaN in x (used as g) before flow {flow.__class__.__name__}"
+                    )
+
                 z = flow(z, x_mask, g=x, reverse=reverse)
+
+                # Debug: After flow
+                if torch.isnan(z).any():
+                    print(
+                        f"[DEBUG StochasticDurationPredictor reverse] NaN in z after flow {flow.__class__.__name__}"
+                    )
+
             z0, z1 = torch.split(z, [1, 1], 1)
             logw = z0
             return logw
@@ -346,6 +386,37 @@ class DurationPredictor(nn.Module):
         return x * x_mask
 
 
+class Bottleneck(nn.Sequential):
+    def __init__(self, in_dim: int, hidden_dim: int) -> None:
+        c_fc1 = nn.Linear(in_dim, hidden_dim, bias=False)
+        c_fc2 = nn.Linear(in_dim, hidden_dim, bias=False)
+        super().__init__(c_fc1, c_fc2)
+
+
+class Block(nn.Module):
+    def __init__(self, in_dim: int, hidden_dim: int) -> None:
+        super().__init__()
+        self.norm = nn.LayerNorm(in_dim)
+        self.mlp = MLP(in_dim, hidden_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x + self.mlp(self.norm(x))
+        return x
+
+
+class MLP(nn.Module):
+    def __init__(self, in_dim: int, hidden_dim: int) -> None:
+        super().__init__()
+        self.c_fc1 = nn.Linear(in_dim, hidden_dim, bias=False)
+        self.c_fc2 = nn.Linear(in_dim, hidden_dim, bias=False)
+        self.c_proj = nn.Linear(hidden_dim, in_dim, bias=False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = F.silu(self.c_fc1(x)) * self.c_fc2(x)
+        x = self.c_proj(x)
+        return x
+
+
 class TextEncoder(nn.Module):
     def __init__(
         self,
@@ -357,8 +428,9 @@ class TextEncoder(nn.Module):
         n_layers: int,
         kernel_size: int,
         p_dropout: float,
-        n_speakers: int,
         gin_channels: int = 0,
+        n_tones: int = NUM_TONES,
+        n_languages: int = NUM_LANGUAGES,
     ) -> None:
         super().__init__()
         self.n_vocab = n_vocab
@@ -370,15 +442,16 @@ class TextEncoder(nn.Module):
         self.kernel_size = kernel_size
         self.p_dropout = p_dropout
         self.gin_channels = gin_channels
-        self.emb = nn.Embedding(len(SYMBOLS), hidden_channels)
+        # Use n_vocab parameter instead of len(SYMBOLS) for backward compatibility
+        self.emb = nn.Embedding(n_vocab, hidden_channels)
         nn.init.normal_(self.emb.weight, 0.0, hidden_channels**-0.5)
-        self.tone_emb = nn.Embedding(NUM_TONES, hidden_channels)
+        self.tone_emb = nn.Embedding(n_tones, hidden_channels)
         nn.init.normal_(self.tone_emb.weight, 0.0, hidden_channels**-0.5)
-        self.language_emb = nn.Embedding(NUM_LANGUAGES, hidden_channels)
+        self.language_emb = nn.Embedding(n_languages, hidden_channels)
         nn.init.normal_(self.language_emb.weight, 0.0, hidden_channels**-0.5)
         self.bert_proj = nn.Conv1d(1024, hidden_channels, 1)
-        self.ja_bert_proj = nn.Conv1d(1024, hidden_channels, 1)
-        self.en_bert_proj = nn.Conv1d(1024, hidden_channels, 1)
+
+        # Remove emo_vq since it's not working well.
         self.style_proj = nn.Linear(256, hidden_channels)
 
         self.encoder = attentions.Encoder(
@@ -399,37 +472,72 @@ class TextEncoder(nn.Module):
         tone: torch.Tensor,
         language: torch.Tensor,
         bert: torch.Tensor,
-        ja_bert: torch.Tensor,
-        en_bert: torch.Tensor,
         style_vec: torch.Tensor,
-        sid: torch.Tensor,
         g: Optional[torch.Tensor] = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        # Debug: Check inputs
+        if torch.isnan(x).any():
+            print(f"[DEBUG TextEncoder] NaN in input x")
+        if torch.isnan(bert).any():
+            print(f"[DEBUG TextEncoder] NaN in input bert")
+        if torch.isnan(style_vec).any():
+            print(f"[DEBUG TextEncoder] NaN in input style_vec")
+
         bert_emb = self.bert_proj(bert).transpose(1, 2)
-        ja_bert_emb = self.ja_bert_proj(ja_bert).transpose(1, 2)
-        en_bert_emb = self.en_bert_proj(en_bert).transpose(1, 2)
-        style_emb = self.style_proj(style_vec.unsqueeze(1))
+        # Debug: After bert projection
+        if torch.isnan(bert_emb).any():
+            print(f"[DEBUG TextEncoder] NaN in bert_emb after projection")
+            print(f"  bert_emb dtype: {bert_emb.dtype}")
+
+        # Convert style_vec to match model dtype (FP32 -> FP16 if use_fp16_all)
+        style_emb = self.style_proj(
+            style_vec.unsqueeze(1).to(self.style_proj.weight.dtype)
+        )
+        # Debug: After style projection
+        if torch.isnan(style_emb).any():
+            print(f"[DEBUG TextEncoder] NaN in style_emb after projection")
+            print(f"  style_emb dtype: {style_emb.dtype}")
 
         x = (
             self.emb(x)
             + self.tone_emb(tone)
             + self.language_emb(language)
             + bert_emb
-            + ja_bert_emb
-            + en_bert_emb
             + style_emb
-        ) * math.sqrt(
-            self.hidden_channels
-        )  # [b, t, h]
+        ) * math.sqrt(self.hidden_channels)  # [b, t, h]
+        # Debug: After combining embeddings
+        if torch.isnan(x).any():
+            print(f"[DEBUG TextEncoder] NaN in x after combining embeddings")
+            print(f"  x dtype: {x.dtype}")
+
         x = torch.transpose(x, 1, -1)  # [b, h, t]
+        # Debug: After transpose
+        if torch.isnan(x).any():
+            print(f"[DEBUG TextEncoder] NaN in x after transpose")
+
         x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x.size(2)), 1).to(
             x.dtype
         )
 
         x = self.encoder(x * x_mask, x_mask, g=g)
+        # Debug: After encoder
+        if torch.isnan(x).any():
+            print(f"[DEBUG TextEncoder] NaN in x after self.encoder")
+            print(f"  x dtype: {x.dtype}")
+
         stats = self.proj(x) * x_mask
+        # Debug: After proj
+        if torch.isnan(stats).any():
+            print(f"[DEBUG TextEncoder] NaN in stats after self.proj")
+            print(f"  stats dtype: {stats.dtype}")
 
         m, logs = torch.split(stats, self.out_channels, dim=1)
+        # Debug: After split
+        if torch.isnan(m).any():
+            print(f"[DEBUG TextEncoder] NaN in m after split")
+        if torch.isnan(logs).any():
+            print(f"[DEBUG TextEncoder] NaN in logs after split")
+
         return x, m, logs, x_mask
 
 
@@ -761,6 +869,59 @@ class MultiPeriodDiscriminator(torch.nn.Module):
         return y_d_rs, y_d_gs, fmap_rs, fmap_gs
 
 
+class WavLMDiscriminator(nn.Module):
+    """docstring for Discriminator."""
+
+    def __init__(
+        self,
+        slm_hidden: int = 768,
+        slm_layers: int = 13,
+        initial_channel: int = 64,
+        use_spectral_norm: bool = False,
+    ) -> None:
+        super(WavLMDiscriminator, self).__init__()
+        norm_f = weight_norm if use_spectral_norm == False else spectral_norm
+        self.pre = norm_f(
+            Conv1d(slm_hidden * slm_layers, initial_channel, 1, 1, padding=0)
+        )
+
+        self.convs = nn.ModuleList(
+            [
+                norm_f(
+                    nn.Conv1d(
+                        initial_channel, initial_channel * 2, kernel_size=5, padding=2
+                    )
+                ),
+                norm_f(
+                    nn.Conv1d(
+                        initial_channel * 2,
+                        initial_channel * 4,
+                        kernel_size=5,
+                        padding=2,
+                    )
+                ),
+                norm_f(
+                    nn.Conv1d(initial_channel * 4, initial_channel * 4, 5, 1, padding=2)
+                ),
+            ]
+        )
+
+        self.conv_post = norm_f(Conv1d(initial_channel * 4, 1, 3, 1, padding=1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.pre(x)
+
+        fmap = []
+        for l in self.convs:
+            x = l(x)
+            x = F.leaky_relu(x, modules.LRELU_SLOPE)
+            fmap.append(x)
+        x = self.conv_post(x)
+        x = torch.flatten(x, 1, -1)
+
+        return x
+
+
 class ReferenceEncoder(nn.Module):
     """
     inputs --- [N, Ty/r, n_mels*r]  mels
@@ -851,13 +1012,17 @@ class SynthesizerTrn(nn.Module):
         gin_channels: int = 256,
         use_sdp: bool = True,
         n_flow_layer: int = 4,
-        n_layers_trans_flow: int = 4,
+        n_layers_trans_flow: int = 6,
         flow_share_parameter: bool = False,
         use_transformer_flow: bool = True,
+        n_tones: int = NUM_TONES,
+        n_languages: int = NUM_LANGUAGES,
         **kwargs: Any,
     ) -> None:
         super().__init__()
         self.n_vocab = n_vocab
+        self.n_tones = n_tones
+        self.n_languages = n_languages
         self.spec_channels = spec_channels
         self.inter_channels = inter_channels
         self.hidden_channels = hidden_channels
@@ -895,8 +1060,9 @@ class SynthesizerTrn(nn.Module):
             n_layers,
             kernel_size,
             p_dropout,
-            self.n_speakers,
             gin_channels=self.enc_gin_channels,
+            n_tones=self.n_tones,
+            n_languages=self.n_languages,
         )
         self.dec = Generator(
             inter_channels,
@@ -961,10 +1127,9 @@ class SynthesizerTrn(nn.Module):
         tone: torch.Tensor,
         language: torch.Tensor,
         bert: torch.Tensor,
-        ja_bert: torch.Tensor,
-        en_bert: torch.Tensor,
         style_vec: torch.Tensor,
     ) -> tuple[
+        torch.Tensor,
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
@@ -979,7 +1144,7 @@ class SynthesizerTrn(nn.Module):
         else:
             g = self.ref_enc(y.transpose(1, 2)).unsqueeze(-1)
         x, m_p, logs_p, x_mask = self.enc_p(
-            x, x_lengths, tone, language, bert, ja_bert, en_bert, style_vec, sid, g=g
+            x, x_lengths, tone, language, bert, style_vec, g=g
         )
         z, m_q, logs_q, y_mask = self.enc_q(y, y_lengths, g=g)
         z_p = self.flow(z, y_mask, g=g)
@@ -1045,9 +1210,89 @@ class SynthesizerTrn(nn.Module):
             ids_slice,
             x_mask,
             y_mask,
-            (z, z_p, m_p, logs_p, m_q, logs_q),
-            (x, logw, logw_),
+            (z, z_p, m_p, logs_p, m_q, logs_q),  # type: ignore
+            (x, logw, logw_),  # , logw_sdp),
+            g,
         )
+
+    def infer_input_feature(
+        self,
+        x: torch.Tensor,
+        x_lengths: torch.Tensor,
+        sid: torch.Tensor,
+        tone: torch.Tensor,
+        language: torch.Tensor,
+        bert: torch.Tensor,
+        style_vec: torch.Tensor,
+        noise_scale: float = 0.667,
+        length_scale: float = 1.0,
+        noise_scale_w: float = 0.8,
+        sdp_ratio: float = 0.0,
+        y: Optional[torch.Tensor] = None,
+    ) -> tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+    ]:
+        """
+        Generator への入力特徴量（潜在変数）を生成する。
+        通常推論・ストリーミング推論の両方で共通の前処理。
+
+        Returns:
+            tuple: z (latent), y_mask, g (global conditioning), attn, z_p, m_p, logs_p
+        """
+        if self.n_speakers > 0:
+            g = self.emb_g(sid).unsqueeze(-1)  # [b, h, 1]
+        else:
+            assert y is not None
+            g = self.ref_enc(y.transpose(1, 2)).unsqueeze(-1)
+
+        x, m_p, logs_p, x_mask = self.enc_p(
+            x, x_lengths, tone, language, bert, style_vec, g=g
+        )
+
+        # SDP/DP run in original dtype
+        logw = self.sdp(x, x_mask, g=g, reverse=True, noise_scale=noise_scale_w) * (
+            sdp_ratio
+        ) + self.dp(x, x_mask, g=g) * (1 - sdp_ratio)
+
+        # Force FP32 for exp/log operations which are unstable in FP16/BF16
+        original_dtype = x.dtype
+        logw_fp32 = logw.float()
+        x_mask_fp32 = x_mask.float()
+        m_p_fp32 = m_p.float()
+        logs_p_fp32 = logs_p.float()
+
+        w = torch.exp(logw_fp32) * x_mask_fp32 * length_scale
+        w_ceil = torch.ceil(w)
+        y_lengths = torch.clamp_min(torch.sum(w_ceil, [1, 2]), 1).long()
+        y_mask = torch.unsqueeze(commons.sequence_mask(y_lengths, None), 1).to(
+            torch.float32
+        )
+        attn_mask = torch.unsqueeze(x_mask_fp32, 2) * torch.unsqueeze(y_mask, -1)
+        attn = commons.generate_path(w_ceil, attn_mask)
+
+        m_p_fp32 = torch.matmul(attn.squeeze(1), m_p_fp32.transpose(1, 2)).transpose(
+            1, 2
+        )  # [b, t', t], [b, t, d] -> [b, d, t']
+        logs_p_fp32 = torch.matmul(
+            attn.squeeze(1), logs_p_fp32.transpose(1, 2)
+        ).transpose(1, 2)  # [b, t', t], [b, t, d] -> [b, d, t']
+
+        z_p = (
+            m_p_fp32 + torch.randn_like(m_p_fp32) * torch.exp(logs_p_fp32) * noise_scale
+        )
+
+        # Flow (back to original dtype)
+        z = self.flow(
+            z_p.to(original_dtype), y_mask.to(original_dtype), g=g, reverse=True
+        )
+
+        return z, y_mask, g, attn, z_p, m_p_fp32, logs_p_fp32
 
     def infer(
         self,
@@ -1057,8 +1302,38 @@ class SynthesizerTrn(nn.Module):
         tone: torch.Tensor,
         language: torch.Tensor,
         bert: torch.Tensor,
-        ja_bert: torch.Tensor,
-        en_bert: torch.Tensor,
+        style_vec: torch.Tensor,
+        noise_scale: float = 0.667,
+        length_scale: float = 1.0,
+        noise_scale_w: float = 0.8,
+        max_len: Optional[int] = None,
+        sdp_ratio: float = 0.0,
+        y: Optional[torch.Tensor] = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, tuple[torch.Tensor, ...]]:
+        return self._infer_impl(
+            x,
+            x_lengths,
+            sid,
+            tone,
+            language,
+            bert,
+            style_vec,
+            noise_scale,
+            length_scale,
+            noise_scale_w,
+            max_len,
+            sdp_ratio,
+            y,
+        )
+
+    def _infer_impl(
+        self,
+        x: torch.Tensor,
+        x_lengths: torch.Tensor,
+        sid: torch.Tensor,
+        tone: torch.Tensor,
+        language: torch.Tensor,
+        bert: torch.Tensor,
         style_vec: torch.Tensor,
         noise_scale: float = 0.667,
         length_scale: float = 1.0,
@@ -1071,32 +1346,73 @@ class SynthesizerTrn(nn.Module):
         # g = self.gst(y)
         if self.n_speakers > 0:
             g = self.emb_g(sid).unsqueeze(-1)  # [b, h, 1]
+            # Debug: Check g after emb_g
+            if torch.isnan(g).any():
+                print(f"[DEBUG _infer_impl] NaN in g after emb_g")
+                print(f"  g dtype: {g.dtype}, g shape: {g.shape}")
         else:
             assert y is not None
             g = self.ref_enc(y.transpose(1, 2)).unsqueeze(-1)
+            # Debug: Check g after ref_enc
+            if torch.isnan(g).any():
+                print(f"[DEBUG _infer_impl] NaN in g after ref_enc")
+
         x, m_p, logs_p, x_mask = self.enc_p(
-            x, x_lengths, tone, language, bert, ja_bert, en_bert, style_vec, sid, g=g
+            x, x_lengths, tone, language, bert, style_vec, g=g
         )
+
+        # Debug: Check outputs from enc_p
+        if torch.isnan(x).any():
+            print(f"[DEBUG _infer_impl] NaN in x after enc_p")
+            print(f"  x dtype: {x.dtype}, x shape: {x.shape}")
+        if torch.isnan(m_p).any():
+            print(f"[DEBUG _infer_impl] NaN in m_p after enc_p")
+        if torch.isnan(logs_p).any():
+            print(f"[DEBUG _infer_impl] NaN in logs_p after enc_p")
+        if torch.isnan(x_mask).any():
+            print(f"[DEBUG _infer_impl] NaN in x_mask after enc_p")
+
+        # SDP/DP run in original dtype
         logw = self.sdp(x, x_mask, g=g, reverse=True, noise_scale=noise_scale_w) * (
             sdp_ratio
         ) + self.dp(x, x_mask, g=g) * (1 - sdp_ratio)
-        w = torch.exp(logw) * x_mask * length_scale
+
+        # Force FP32 for exp/log operations which are unstable in FP16/BF16
+        original_dtype = x.dtype
+        logw_fp32 = logw.float()
+        x_mask_fp32 = x_mask.float()
+        m_p_fp32 = m_p.float()
+        logs_p_fp32 = logs_p.float()
+
+        w = torch.exp(logw_fp32) * x_mask_fp32 * length_scale
         w_ceil = torch.ceil(w)
         y_lengths = torch.clamp_min(torch.sum(w_ceil, [1, 2]), 1).long()
         y_mask = torch.unsqueeze(commons.sequence_mask(y_lengths, None), 1).to(
-            x_mask.dtype
+            torch.float32
         )
-        attn_mask = torch.unsqueeze(x_mask, 2) * torch.unsqueeze(y_mask, -1)
+        attn_mask = torch.unsqueeze(x_mask_fp32, 2) * torch.unsqueeze(y_mask, -1)
         attn = commons.generate_path(w_ceil, attn_mask)
 
-        m_p = torch.matmul(attn.squeeze(1), m_p.transpose(1, 2)).transpose(
+        m_p_fp32 = torch.matmul(attn.squeeze(1), m_p_fp32.transpose(1, 2)).transpose(
             1, 2
         )  # [b, t', t], [b, t, d] -> [b, d, t']
-        logs_p = torch.matmul(attn.squeeze(1), logs_p.transpose(1, 2)).transpose(
-            1, 2
-        )  # [b, t', t], [b, t, d] -> [b, d, t']
+        logs_p_fp32 = torch.matmul(
+            attn.squeeze(1), logs_p_fp32.transpose(1, 2)
+        ).transpose(1, 2)  # [b, t', t], [b, t, d] -> [b, d, t']
 
-        z_p = m_p + torch.randn_like(m_p) * torch.exp(logs_p) * noise_scale
-        z = self.flow(z_p, y_mask, g=g, reverse=True)
-        o = self.dec((z * y_mask)[:, :, :max_len], g=g)
+        z_p = (
+            m_p_fp32 + torch.randn_like(m_p_fp32) * torch.exp(logs_p_fp32) * noise_scale
+        )
+        # End of FP32 section
+
+        z = self.flow(
+            z_p.to(original_dtype), y_mask.to(original_dtype), g=g, reverse=True
+        )
+
+        # Decoder runs in the model's dtype (set during model loading)
+        dec_dtype = next(self.dec.parameters()).dtype
+        z_dec = (z * y_mask)[:, :, :max_len].to(dec_dtype)
+        g_dec = g.to(dec_dtype)
+        o = self.dec(z_dec, g=g_dec)
+
         return o, attn, y_mask, (z, z_p, m_p, logs_p)

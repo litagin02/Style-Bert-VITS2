@@ -25,8 +25,28 @@ class LayerNorm(nn.Module):
         self.beta = nn.Parameter(torch.zeros(channels))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x_input = x
         x = x.transpose(1, -1)
+        # Debug: Check before layer_norm
+        if torch.isnan(x).any():
+            print(f"[DEBUG LayerNorm] NaN in x before layer_norm")
+
         x = F.layer_norm(x, (self.channels,), self.gamma, self.beta, self.eps)
+
+        # Debug: Check after layer_norm
+        if torch.isnan(x).any():
+            print(f"[DEBUG LayerNorm] NaN in x after layer_norm")
+            print(f"  Input dtype: {x_input.dtype}, output dtype: {x.dtype}")
+            print(f"  gamma dtype: {self.gamma.dtype}, beta dtype: {self.beta.dtype}")
+            print(f"  eps: {self.eps}")
+            print(f"  Input min: {x_input.min()}, max: {x_input.max()}")
+            print(f"  Input has inf: {torch.isinf(x_input).any()}")
+            # Compute variance manually to check
+            mean = x_input.mean(dim=-1, keepdim=True)
+            var = ((x_input - mean) ** 2).mean(dim=-1, keepdim=True)
+            print(f"  Variance min: {var.min()}, max: {var.max()}")
+            print(f"  Variance has NaN: {torch.isnan(var).any()}")
+
         return x.transpose(1, -1)
 
 
@@ -122,10 +142,45 @@ class DDSConv(nn.Module):
     def forward(
         self, x: torch.Tensor, x_mask: torch.Tensor, g: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
+        # Debug: Check input
+        if torch.isnan(x).any():
+            print(f"[DEBUG DDSConv] NaN in x at entry")
         if g is not None:
+            # Debug: Check before addition
+            if torch.isnan(g).any():
+                print(f"[DEBUG DDSConv] NaN in g before addition")
+                print(f"  g dtype: {g.dtype}, x dtype: {x.dtype}")
+
             x = x + g
+
+            # Debug: Check after addition
+            if torch.isnan(x).any():
+                print(f"[DEBUG DDSConv] NaN in x after x + g")
+                print(f"  x dtype after: {x.dtype}")
+                print(f"  g dtype: {g.dtype}, g min: {g.min()}, max: {g.max()}")
+                print(f"  g has inf: {torch.isinf(g).any()}")
+
         for i in range(self.n_layers):
+            # Debug: Check input to layer
+            if i == 0 and torch.isnan(x).any():
+                print(f"[DEBUG DDSConv] NaN in x at start of layer {i}")
+                print(f"  x dtype: {x.dtype}")
+
             y = self.convs_sep[i](x * x_mask)
+
+            # Debug: Check after conv_sep
+            if torch.isnan(y).any():
+                print(f"[DEBUG DDSConv] NaN in y after convs_sep[{i}]")
+                print(f"  Input x dtype: {x.dtype}, min: {x.min()}, max: {x.max()}")
+                print(f"  Input x has inf: {torch.isinf(x).any()}")
+                print(f"  Output y dtype: {y.dtype}")
+                print(f"  x_mask has NaN: {torch.isnan(x_mask).any()}")
+                print(f"  (x * x_mask) has NaN: {torch.isnan(x * x_mask).any()}")
+                print(f"  (x * x_mask) has inf: {torch.isinf(x * x_mask).any()}")
+                print(f"  (x * x_mask) dtype: {(x * x_mask).dtype}")
+                print(f"  NaN count: {torch.isnan(y).sum().item()}/{y.numel()}")
+                break  # Stop on first NaN
+
             y = self.norms_1[i](y)
             y = F.gelu(y)
             y = self.convs_1x1[i](y)
@@ -539,15 +594,78 @@ class ConvFlow(nn.Module):
         g: Optional[torch.Tensor] = None,
         reverse: bool = False,
     ) -> Union[tuple[torch.Tensor, torch.Tensor], torch.Tensor]:
+        # Debug: Check inputs to ConvFlow
+        if torch.isnan(x).any():
+            print(f"[DEBUG ConvFlow] NaN in input x")
+            print(f"  x dtype: {x.dtype}, shape: {x.shape}")
+            print(f"  x min: {x.min()}, max: {x.max()}")
+        if g is not None and torch.isnan(g).any():
+            print(f"[DEBUG ConvFlow] NaN in input g (conditioning)")
+            print(f"  g dtype: {g.dtype}, shape: {g.shape}")
+            print(f"  g min: {g.min()}, max: {g.max()}")
+
         x0, x1 = torch.split(x, [self.half_channels] * 2, 1)
+
+        # Debug: Check input
+        if torch.isnan(x).any():
+            print(f"[DEBUG] NaN found in input x to ResidualCouplingLayer")
+        if torch.isnan(x0).any():
+            print(f"[DEBUG] NaN found in x0 after split")
+
         h = self.pre(x0)
+        # Debug: Check after pre
+        if torch.isnan(h).any():
+            print(f"[DEBUG] NaN found in h after pre")
+            print(f"  h dtype: {h.dtype}")
+
+        h_before_convs = h
         h = self.convs(h, x_mask, g=g)
-        h = self.proj(h) * x_mask
+        # Debug: Check after convs
+        if torch.isnan(h).any():
+            print(f"[DEBUG] NaN found in h after convs")
+            print(f"  h dtype: {h.dtype}")
+            print(f"  h_before_convs dtype: {h_before_convs.dtype}")
+            print(
+                f"  h_before_convs min: {h_before_convs.min()}, max: {h_before_convs.max()}"
+            )
+            print(f"  h_before_convs has inf: {torch.isinf(h_before_convs).any()}")
+            print(f"  g dtype: {g.dtype if g is not None else 'None'}")
+            print(f"  x_mask dtype: {x_mask.dtype}")
+            # Check how many NaN values
+            nan_count = torch.isnan(h).sum().item()
+            total_elements = h.numel()
+            print(
+                f"  NaN count: {nan_count}/{total_elements} ({100 * nan_count / total_elements:.2f}%)"
+            )
+
+        h_after_proj = self.proj(h)
+        # Debug: Check for NaN after projection
+        if torch.isnan(h_after_proj).any():
+            print(f"[DEBUG] NaN found in h_after_proj")
+            print(f"  h_after_proj dtype: {h_after_proj.dtype}")
+            print(f"  h input dtype: {h.dtype}")
+
+        h = h_after_proj * x_mask
+        # Debug: Check for NaN after masking
+        if torch.isnan(h).any():
+            print(f"[DEBUG] NaN found in h after masking")
+            print(f"  x_mask has NaN: {torch.isnan(x_mask).any()}")
 
         b, c, t = x0.shape
         h = h.reshape(b, c, -1, t).permute(0, 1, 3, 2)  # [b, cx?, t] -> [b, c, t, ?]
 
+        # Debug: Check for NaN after reshape
+        if torch.isnan(h).any():
+            print(f"[DEBUG] NaN found in h after reshape")
+
         unnormalized_widths = h[..., : self.num_bins] / math.sqrt(self.filter_channels)
+        # Debug: Check for NaN in unnormalized_widths
+        if torch.isnan(unnormalized_widths).any():
+            print(f"[DEBUG] NaN found in unnormalized_widths")
+            print(f"  h slice has NaN: {torch.isnan(h[..., : self.num_bins]).any()}")
+            print(f"  sqrt(filter_channels): {math.sqrt(self.filter_channels)}")
+            print(f"  h dtype: {h.dtype}")
+
         unnormalized_heights = h[..., self.num_bins : 2 * self.num_bins] / math.sqrt(
             self.filter_channels
         )

@@ -62,7 +62,7 @@ Optional
 ## 2. Preprocess
 
 ```bash
-python preprocess_all.py -m <model_name> [--use_jp_extra] [-b <batch_size>] [-e <epochs>] [-s <save_every_steps>] [--num_processes <num_processes>] [--normalize] [--trim] [--val_per_lang <val_per_lang>] [--log_interval <log_interval>] [--freeze_EN_bert] [--freeze_JP_bert] [--freeze_ZH_bert] [--freeze_style] [--freeze_decoder] [--yomi_error <yomi_error>]
+python preprocess_all.py -m <model_name> [-b <batch_size>] [-e <epochs>] [-s <save_every_steps>] [--num_processes <num_processes>] [--normalize] [--trim] [--val_per_lang <val_per_lang>] [--log_interval <log_interval>] [--freeze_JP_bert] [--freeze_style] [--freeze_decoder] [--yomi_error <yomi_error>]
 ```
 
 Required:
@@ -75,12 +75,9 @@ Optional:
 - `--num_processes`: Number of processes (default: half of the number of CPU cores).
 - `--normalize`: Loudness normalize audio.
 - `--trim`: Trim silence.
-- `--freeze_EN_bert`: Freeze English BERT.
 - `--freeze_JP_bert`: Freeze Japanese BERT.
-- `--freeze_ZH_bert`: Freeze Chinese BERT.
 - `--freeze_style`: Freeze style vector.
 - `--freeze_decoder`: Freeze decoder.
-- `--use_jp_extra`: Use JP-Extra model.
 - `--val_per_lang`: Validation data per language (default: 0).
 - `--log_interval`: Log interval (default: 200).
 - `--yomi_error`: How to handle yomi errors (default: `raise`: raise an error after preprocessing all texts, `skip`: skip the texts with errors, `use`: use the texts with errors by ignoring unknown characters).
@@ -89,16 +86,12 @@ Optional:
 
 Training settings are automatically loaded from the above process.
 
-If NOT using JP-Extra model:
 ```bash
-python train_ms.py [--repo_id <username>/<repo_name>]
-```
-
-If using JP-Extra model:
-```bash
-python train_ms_jp_extra.py [--repo_id <username>/<repo_name>] [--skip_default_style]
+python train.py [--repo_id <username>/<repo_name>] [--skip_default_style]
 ```
 
 Optional:
 - `--repo_id`: Hugging Face repository ID to upload the trained model to. You should have logged in using `huggingface-cli login` before running this command.
 - `--skip_default_style`: Skip making the default style vector. Use this if you want to resume training (since the default style vector has been already made).
+
+> **Note:** v3.0.0+ only supports JP-Extra model architecture. Chinese and English language support has been removed.

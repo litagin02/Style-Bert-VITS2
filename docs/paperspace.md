@@ -62,16 +62,15 @@ python transcribe.py --model_name Foo --use_hf_whisper
 
 それが終わったら、以下のコマンドで一括前処理を行う（パラメータは各自お好み、バッチサイズ5か6でVRAM 16GBギリくらい）。
 ```bash
-python preprocess_all.py --model_name Foo -b 5 -e 300 --use_jp_extra
+python preprocess_all.py --model_name Foo -b 5 -e 300
 ```
 
 ### 3. 学習
 
 Hugging faceの`username/sbv2-private`というモデルリポジトリに学習済みモデルをアップロードすることを想定しています。事前に`huggingface-cli login`でログインしておくこと。
 ```bash
-python train_ms_jp_extra.py --repo_id username/sbv2-private
+python train.py --repo_id username/sbv2-private
 ```
-(JP-Extraでない場合は`train_ms.py`を使う)
 
 ### 4. 学習再開
 
@@ -81,6 +80,6 @@ huggingface-cli login
 cd /notebooks
 huggingface-cli download username/sbv2-private --include "Data/Foo/*" --local-dir .
 cd /storage/sbv2/Style-Bert-VITS2
-python train_ms_jp_extra.py --repo_id username/sbv2-private --skip_default_style
+python train.py --repo_id username/sbv2-private --skip_default_style
 ```
 前回の設定が残っているので特に前処理等は不要。

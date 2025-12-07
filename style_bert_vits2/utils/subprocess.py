@@ -21,20 +21,33 @@ def run_script_with_log(
     """
 
     logger.info(f"Running: {' '.join(cmd)}")
+    # text=True (universal_newlines) causes implicit decoding which fails on Windows if encoding doesn't match.
+    # We capture bytes and decode manually.
     result = subprocess.run(
         [sys.executable] + cmd,
         stdout=SAFE_STDOUT,
         stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
+        text=False,  # Capture bytes
         check=False,
     )
+
+    stderr_bytes = result.stderr
+    stderr_str = ""
+    if stderr_bytes:
+        try:
+            stderr_str = stderr_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            try:
+                stderr_str = stderr_bytes.decode("cp932")
+            except UnicodeDecodeError:
+                stderr_str = stderr_bytes.decode("utf-8", errors="replace")
+
     if result.returncode != 0:
-        logger.error(f"Error: {' '.join(cmd)}\n{result.stderr}")
-        return False, result.stderr
-    elif result.stderr and not ignore_warning:
-        logger.warning(f"Warning: {' '.join(cmd)}\n{result.stderr}")
-        return True, result.stderr
+        logger.error(f"Error: {' '.join(cmd)}\n{stderr_str}")
+        return False, stderr_str
+    elif stderr_str and not ignore_warning:
+        logger.warning(f"Warning: {' '.join(cmd)}\n{stderr_str}")
+        return True, stderr_str
     logger.success(f"Success: {' '.join(cmd)}")
 
     return True, ""

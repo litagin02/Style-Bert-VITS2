@@ -22,7 +22,6 @@ def piecewise_rational_quadratic_transform(
     min_bin_height: float = DEFAULT_MIN_BIN_HEIGHT,
     min_derivative: float = DEFAULT_MIN_DERIVATIVE,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-
     if tails is None:
         spline_fn = rational_quadratic_spline
         spline_kwargs = {}
@@ -63,7 +62,6 @@ def unconstrained_rational_quadratic_spline(
     min_bin_height: float = DEFAULT_MIN_BIN_HEIGHT,
     min_derivative: float = DEFAULT_MIN_DERIVATIVE,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-
     inside_interval_mask = (inputs >= -tail_bound) & (inputs <= tail_bound)
     outside_interval_mask = ~inside_interval_mask
 
@@ -81,10 +79,7 @@ def unconstrained_rational_quadratic_spline(
     else:
         raise RuntimeError(f"{tails} tails are not implemented.")
 
-    (
-        outputs[inside_interval_mask],
-        logabsdet[inside_interval_mask],
-    ) = rational_quadratic_spline(
+    outputs_rqs, logabsdet_rqs = rational_quadratic_spline(
         inputs=inputs[inside_interval_mask],
         unnormalized_widths=unnormalized_widths[inside_interval_mask, :],
         unnormalized_heights=unnormalized_heights[inside_interval_mask, :],
@@ -98,6 +93,9 @@ def unconstrained_rational_quadratic_spline(
         min_bin_height=min_bin_height,
         min_derivative=min_derivative,
     )
+
+    outputs[inside_interval_mask] = outputs_rqs
+    logabsdet[inside_interval_mask] = logabsdet_rqs
 
     return outputs, logabsdet
 
@@ -116,9 +114,18 @@ def rational_quadratic_spline(
     min_bin_height: float = DEFAULT_MIN_BIN_HEIGHT,
     min_derivative: float = DEFAULT_MIN_DERIVATIVE,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-
     if torch.min(inputs) < left or torch.max(inputs) > right:
         raise ValueError("Input to a transform is not within its domain")
+
+    for t, name in [
+        (inputs, "inputs"),
+        (unnormalized_widths, "unnormalized_widths"),
+        (unnormalized_heights, "unnormalized_heights"),
+        (unnormalized_derivatives, "unnormalized_derivatives"),
+    ]:
+        # nan check
+        if torch.isnan(t).any():
+            raise ValueError(f"NaN values found in {name}")
 
     num_bins = unnormalized_widths.shape[-1]
 
@@ -168,13 +175,25 @@ def rational_quadratic_spline(
         a = (inputs - input_cumheights) * (
             input_derivatives + input_derivatives_plus_one - 2 * input_delta
         ) + input_heights * (input_delta - input_derivatives)
+        # check nan
+        assert not torch.isnan(a).any(), f"NaN values found in 'a' coefficient, {a}"
         b = input_heights * input_derivatives - (inputs - input_cumheights) * (
             input_derivatives + input_derivatives_plus_one - 2 * input_delta
         )
+        # check nan
+        assert not torch.isnan(b).any(), f"NaN values found in 'b' coefficient, {b}"
         c = -input_delta * (inputs - input_cumheights)
+        # check nan
+        assert not torch.isnan(c).any(), f"NaN values found in 'c' coefficient, {c}"
 
         discriminant = b.pow(2) - 4 * a * c
-        assert (discriminant >= 0).all()
+        # assert (discriminant >= 0).all(), f"Discriminant is negative, {discriminant}"
+        if torch.any(discriminant < 0):
+            print(
+                "Negative discriminant encountered in rational quadratic spline inverse, clamping to zero."
+            )
+            # Clamp discriminant to avoid NaNs from sqrt
+            discriminant = torch.clamp(discriminant, min=0.0)
 
         root = (2 * c) / (-b - torch.sqrt(discriminant))
         outputs = root * input_bin_widths + input_cumwidths

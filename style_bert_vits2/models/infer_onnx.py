@@ -42,16 +42,25 @@ def get_text_onnx(
     assist_text_weight: float = 0.7,
     given_phone: Optional[list[str]] = None,
     given_tone: Optional[list[int]] = None,
-) -> tuple[
-    NDArray[Any], NDArray[Any], NDArray[Any], NDArray[Any], NDArray[Any], NDArray[Any]
-]:
-    use_jp_extra = hps.version.endswith("JP-Extra")
-    norm_text, phone, tone, word2ph = clean_text_with_given_phone_tone(
+) -> tuple[NDArray[Any], NDArray[Any], NDArray[Any], NDArray[Any]]:
+    """
+    テキストを音素・トーン・言語ID・BERT特徴量に変換する (ONNX推論用)
+
+    v3.0.0 以降は日本語 (JP) のみサポート。
+
+    Returns:
+        tuple: (ja_bert, phone, tone, language)
+    """
+    if language_str != Languages.JP:
+        raise ValueError(
+            f"Language {language_str} not supported. Only JP is supported in v3.0+"
+        )
+
+    norm_text, phone, tone, word2ph, sep_text, _, _ = clean_text_with_given_phone_tone(
         text,
         language_str,
         given_phone=given_phone,
         given_tone=given_tone,
-        use_jp_extra=use_jp_extra,
         # 推論時のみ呼び出されるので、raise_yomi_error は False に設定
         raise_yomi_error=False,
     )
@@ -64,40 +73,23 @@ def get_text_onnx(
         for i in range(len(word2ph)):
             word2ph[i] = word2ph[i] * 2
         word2ph[0] += 1
-    bert_ori = extract_bert_feature_onnx(
+
+    ja_bert = extract_bert_feature_onnx(
         norm_text,
         word2ph,
         language_str,
         onnx_providers,
         assist_text,
         assist_text_weight,
+        sep_text=sep_text,  # clean_text_with_given_phone_tone() の中間生成物を再利用して効率向上を図る
     )
     del word2ph
-    assert bert_ori.shape[-1] == len(phone), phone
-
-    if language_str == Languages.ZH:
-        bert = bert_ori
-        ja_bert = np.zeros((1024, len(phone)), dtype=np.float32)
-        en_bert = np.zeros((1024, len(phone)), dtype=np.float32)
-    elif language_str == Languages.JP:
-        bert = np.zeros((1024, len(phone)), dtype=np.float32)
-        ja_bert = bert_ori
-        en_bert = np.zeros((1024, len(phone)), dtype=np.float32)
-    elif language_str == Languages.EN:
-        bert = np.zeros((1024, len(phone)), dtype=np.float32)
-        ja_bert = np.zeros((1024, len(phone)), dtype=np.float32)
-        en_bert = bert_ori
-    else:
-        raise ValueError("language_str should be ZH, JP or EN")
-
-    assert bert.shape[-1] == len(
-        phone
-    ), f"Bert seq len {bert.shape[-1]} != {len(phone)}"
+    assert ja_bert.shape[-1] == len(phone), phone
 
     phone = np.array(phone, dtype=np.int64)
     tone = np.array(tone, dtype=np.int64)
     language = np.array(language, dtype=np.int64)
-    return bert, ja_bert, en_bert, phone, tone, language
+    return ja_bert, phone, tone, language
 
 
 def infer_onnx(
@@ -119,8 +111,17 @@ def infer_onnx(
     given_phone: Optional[list[str]] = None,
     given_tone: Optional[list[int]] = None,
 ) -> NDArray[Any]:
-    is_jp_extra = hps.version.endswith("JP-Extra")
-    bert, ja_bert, en_bert, phones, tones, lang_ids = get_text_onnx(
+    """
+    ONNX モデルを使用してテキストから音声を生成する。
+
+    v3.0.0 以降は日本語 (JP-Extra) のみサポート。
+    """
+    if language != Languages.JP:
+        raise ValueError(
+            f"Language {language} not supported. Only JP is supported in v3.0+"
+        )
+
+    ja_bert, phones, tones, lang_ids = get_text_onnx(
         text,
         language,
         hps,
@@ -134,23 +135,17 @@ def infer_onnx(
         phones = phones[3:]
         tones = tones[3:]
         lang_ids = lang_ids[3:]
-        bert = bert[:, 3:]
         ja_bert = ja_bert[:, 3:]
-        en_bert = en_bert[:, 3:]
     if skip_end:
         phones = phones[:-2]
         tones = tones[:-2]
         lang_ids = lang_ids[:-2]
-        bert = bert[:, :-2]
         ja_bert = ja_bert[:, :-2]
-        en_bert = en_bert[:, :-2]
 
     x_tst = np.expand_dims(phones, axis=0)
     tones = np.expand_dims(tones, axis=0)
     lang_ids = np.expand_dims(lang_ids, axis=0)
-    bert = np.expand_dims(bert, axis=0)
     ja_bert = np.expand_dims(ja_bert, axis=0)
-    en_bert = np.expand_dims(en_bert, axis=0)
     x_tst_lengths = np.array([phones.shape[0]], dtype=np.int64)
     style_vec_tensor = np.expand_dims(style_vec, axis=0)
     del phones
@@ -158,36 +153,21 @@ def infer_onnx(
 
     input_names = [input.name for input in onnx_session.get_inputs()]
     output_name = onnx_session.get_outputs()[0].name
-    if is_jp_extra:
-        input_tensor = [
-            x_tst,
-            x_tst_lengths,
-            sid_tensor,
-            tones,
-            lang_ids,
-            ja_bert,
-            style_vec_tensor,
-            np.array(length_scale, dtype=np.float32),
-            np.array(sdp_ratio, dtype=np.float32),
-            np.array(noise_scale, dtype=np.float32),
-            np.array(noise_scale_w, dtype=np.float32),
-        ]
-    else:
-        input_tensor = [
-            x_tst,
-            x_tst_lengths,
-            sid_tensor,
-            tones,
-            lang_ids,
-            bert,
-            ja_bert,
-            en_bert,
-            style_vec_tensor,
-            np.array(length_scale, dtype=np.float32),
-            np.array(sdp_ratio, dtype=np.float32),
-            np.array(noise_scale, dtype=np.float32),
-            np.array(noise_scale_w, dtype=np.float32),
-        ]
+
+    # JP-Extra model input format
+    input_tensor = [
+        x_tst,
+        x_tst_lengths,
+        sid_tensor,
+        tones,
+        lang_ids,
+        ja_bert,
+        style_vec_tensor,
+        np.array(length_scale, dtype=np.float32),
+        np.array(sdp_ratio, dtype=np.float32),
+        np.array(noise_scale, dtype=np.float32),
+        np.array(noise_scale_w, dtype=np.float32),
+    ]
 
     # 入力テンソルの転送に使用するデバイス種別, デバイス ID, 実行オプションを取得
     device_type, device_id, run_options = get_onnx_device_options(onnx_session, onnx_providers)  # fmt: skip
@@ -212,12 +192,10 @@ def infer_onnx(
         x_tst,
         tones,
         lang_ids,
-        bert,
         x_tst_lengths,
         sid_tensor,
         ja_bert,
-        en_bert,
         style_vec,
-    )  # , emo
+    )
 
     return audio

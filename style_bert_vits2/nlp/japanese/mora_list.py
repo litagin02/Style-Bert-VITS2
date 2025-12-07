@@ -47,14 +47,14 @@ OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 """
 
-from typing import Optional
-
 
 # (カタカナ, 子音, 母音)の順。子音がない場合は None を入れる。
 # 但し「ン」と「ッ」は母音のみという扱いで、「ン」は「N」、「ッ」は「q」とする。
 # （元々「ッ」は「cl」）
-# また「デェ = dy e」は pyopenjtalk の出力（de e）と合わないため削除
-__MORA_LIST_MINIMUM: list[tuple[str, Optional[str], str]] = [
+# また pyopenjtalk-plus で追加されたモーラと、エイリアスとして「ヂャ」「ヂュ」「ヂョ」「ヂェ」を独自に追加している
+# 以下に定義されているモーラは、「ヂャ」「ヂュ」「ヂョ」「ヂェ」を除き全て pyopenjtalk-plus (に内蔵されている OpenJTalk) に定義されているもの
+# ref: https://github.com/VOICEVOX/voicevox_engine/pull/1473
+__MORA_LIST_MINIMUM: list[tuple[str, str | None, str]] = [
     ("ヴォ", "v", "o"),
     ("ヴェ", "v", "e"),
     ("ヴィ", "v", "i"),
@@ -91,6 +91,7 @@ __MORA_LIST_MINIMUM: list[tuple[str, Optional[str], str]] = [
     ("ヘ", "h", "e"),
     ("プ", "p", "u"),
     ("ブ", "b", "u"),
+    ("フュ", "fy", "u"),  # pyopenjtalk-plus で追加されたモーラ
     ("フォ", "f", "o"),
     ("フェ", "f", "e"),
     ("フィ", "f", "i"),
@@ -130,7 +131,7 @@ __MORA_LIST_MINIMUM: list[tuple[str, Optional[str], str]] = [
     ("デョ", "dy", "o"),
     ("デュ", "dy", "u"),
     ("デャ", "dy", "a"),
-    # ("デェ", "dy", "e"),
+    ("デェ", "dy", "e"),  # pyopenjtalk-plus で追加されたモーラ
     ("ディ", "d", "i"),
     ("デ", "d", "e"),
     ("テョ", "ty", "o"),
@@ -175,9 +176,17 @@ __MORA_LIST_MINIMUM: list[tuple[str, Optional[str], str]] = [
     ("コ", "k", "o"),
     ("ゲ", "g", "e"),
     ("ケ", "k", "e"),
-    ("グヮ", "gw", "a"),
+    ("グヮ", "gw", "a"),  # pyopenjtalk-plus で追加されたモーラ
+    ("グォ", "gw", "o"),  # pyopenjtalk-plus で追加されたモーラ
+    ("グェ", "gw", "e"),  # pyopenjtalk-plus で追加されたモーラ
+    ("グゥ", "gw", "u"),  # pyopenjtalk-plus で追加されたモーラ
+    ("グィ", "gw", "i"),  # pyopenjtalk-plus で追加されたモーラ
     ("グ", "g", "u"),
-    ("クヮ", "kw", "a"),
+    ("クヮ", "kw", "a"),  # pyopenjtalk-plus で追加されたモーラ
+    ("クォ", "kw", "o"),  # pyopenjtalk-plus で追加されたモーラ
+    ("クェ", "kw", "e"),  # pyopenjtalk-plus で追加されたモーラ
+    ("クゥ", "kw", "u"),  # pyopenjtalk-plus で追加されたモーラ
+    ("クィ", "kw", "i"),  # pyopenjtalk-plus で追加されたモーラ
     ("ク", "k", "u"),
     ("ギョ", "gy", "o"),
     ("ギュ", "gy", "u"),
@@ -201,7 +210,10 @@ __MORA_LIST_MINIMUM: list[tuple[str, Optional[str], str]] = [
     ("イ", None, "i"),
     ("ア", None, "a"),
 ]
-__MORA_LIST_ADDITIONAL: list[tuple[str, Optional[str], str]] = [
+
+# __MORA_LIST_MINIMUM と同じ子音＋母音の組に対応するエイリアス
+# 例えば "ズ" と "ヅ" はどちらとも ("z", "u") に対応する
+__MORA_LIST_ADDITIONAL: list[tuple[str, str | None, str]] = [
     ("ヴョ", "by", "o"),
     ("ヴュ", "by", "u"),
     ("ヴャ", "by", "a"),
@@ -212,7 +224,14 @@ __MORA_LIST_ADDITIONAL: list[tuple[str, Optional[str], str]] = [
     ("ョ", "y", "o"),
     ("ュ", "y", "u"),
     ("ヅ", "z", "u"),
+    ("ヂョ", "j", "o"),  # pyopenjtalk-plus には存在しないエイリアス
+    ("ヂュ", "j", "u"),  # pyopenjtalk-plus には存在しないエイリアス
+    ("ヂャ", "j", "a"),  # pyopenjtalk-plus には存在しないエイリアス
+    ("ヂェ", "j", "e"),  # pyopenjtalk-plus には存在しないエイリアス
     ("ヂ", "j", "i"),
+    ("シィ", "s", "i"),  # pyopenjtalk-plus で追加されたモーラ
+    ("グァ", "gw", "a"),  # pyopenjtalk-plus で追加されたモーラ
+    ("クァ", "kw", "a"),  # pyopenjtalk-plus で追加されたモーラ
     ("ヶ", "k", "e"),
     ("ャ", "y", "a"),
     ("ォ", None, "o"),
@@ -230,7 +249,7 @@ MORA_PHONEMES_TO_MORA_KATA: dict[str, str] = {
 
 # モーラのカタカナ表記と音素の対応表
 # 例: "ヴォ" -> ("v", "o"), "ア" -> (None, "a")
-MORA_KATA_TO_MORA_PHONEMES: dict[str, tuple[Optional[str], str]] = {
+MORA_KATA_TO_MORA_PHONEMES: dict[str, tuple[str | None, str]] = {
     kana: (consonant, vowel)
     for [kana, consonant, vowel] in __MORA_LIST_MINIMUM + __MORA_LIST_ADDITIONAL
 }

@@ -16,6 +16,7 @@ import numpy as np
 from fastapi import HTTPException
 
 from style_bert_vits2.constants import DEFAULT_USER_DICT_DIR
+from style_bert_vits2.logging import logger
 from style_bert_vits2.nlp.japanese import pyopenjtalk_worker as pyopenjtalk
 from style_bert_vits2.nlp.japanese.user_dict.part_of_speech_data import (
     MAX_PRIORITY,
@@ -149,9 +150,18 @@ def update_dict(
         # コンパイル済み辞書の置き換え・読み込み
         pyopenjtalk.unset_user_dict()
         tmp_compiled_path.replace(compiled_dict_path)
-        if compiled_dict_path.is_file():
-            # pyopenjtalk.set_user_dict(str(compiled_dict_path.resolve(strict=True)))
-            pyopenjtalk.update_global_jtalk_with_user_dict(str(compiled_dict_path))
+
+        # dict_data/**/*.dic から全ての辞書ファイルを収集
+        # ファイル名でソートして読み込み順を保証 (01_*, 02_*, etc.)
+        dict_paths: List[str] = []
+        for dic_file in sorted(DEFAULT_USER_DICT_DIR.glob("**/*.dic")):
+            dict_paths.append(str(dic_file))
+
+        if dict_paths:
+            logger.info(
+                f"Loading {len(dict_paths)} dictionary files from {DEFAULT_USER_DICT_DIR}"
+            )
+            pyopenjtalk.update_global_jtalk_with_user_dict(dict_paths)
 
     except Exception as e:
         print("Error: Failed to update dictionary.", file=sys.stderr)

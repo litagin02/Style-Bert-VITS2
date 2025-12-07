@@ -1,6 +1,6 @@
 """
 Style-Bert-VITS2 モデルのハイパーパラメータを表す Pydantic モデル。
-デフォルト値は configs/config_jp_extra.json 内の定義と概ね同一で、
+デフォルト値は configs/config.json 内の定義と概ね同一で、
 万が一ロードした config.json に存在しないキーがあった際のフェイルセーフとして適用される。
 """
 
@@ -29,17 +29,13 @@ class HyperParametersTrain(BaseModel):
     c_kl: float = 1.0
     c_commit: int = 100
     skip_optimizer: bool = False
-    freeze_ZH_bert: bool = False
     freeze_JP_bert: bool = False
-    freeze_EN_bert: bool = False
     freeze_emo: bool = False
     freeze_style: bool = False
     freeze_decoder: bool = False
 
 
 class HyperParametersData(BaseModel):
-    # use_jp_extra フィールドが存在しない旧モデルとの互換性のために False をデフォルト値とする
-    use_jp_extra: bool = False
     training_files: str = "Data/Dummy/train.list"
     validation_files: str = "Data/Dummy/val.list"
     max_wav_value: float = 32768.0
@@ -63,7 +59,7 @@ class HyperParametersData(BaseModel):
 
 
 class HyperParametersModelSLM(BaseModel):
-    model: str = "./slm/wavlm-base-plus"
+    model: str = "microsoft/wavlm-base-plus"
     sr: int = 16000
     hidden: int = 768
     nlayers: int = 13
@@ -101,7 +97,7 @@ class HyperParametersModel(BaseModel):
 
 class HyperParameters(BaseModel):
     model_name: str = "Dummy"
-    version: str = "2.0-JP-Extra"
+    version: str = "3.0.0-JP-Extra"
     train: HyperParametersTrain = HyperParametersTrain()
     data: HyperParametersData = HyperParametersData()
     model: HyperParametersModel = HyperParametersModel()

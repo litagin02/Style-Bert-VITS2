@@ -19,7 +19,7 @@ def g2kata_tone(norm_text: str) -> list[tuple[str, int]]:
         カタカナと音高のリスト。
     """
 
-    phones, tones, _ = g2p(norm_text, use_jp_extra=True, raise_yomi_error=False)
+    phones, tones, *_ = g2p(norm_text, raise_yomi_error=False)
     return phone_tone2kata_tone(list(zip(phones, tones)))
 
 

@@ -13,6 +13,7 @@ def load_safetensors(
     model: torch.nn.Module,
     for_infer: bool = False,
     device: Union[str, torch.device] = "cpu",
+    assign: bool = False,
 ) -> tuple[torch.nn.Module, Optional[int]]:
     """
     指定されたパスから safetensors モデルを読み込み、モデルとイテレーションを返す。
@@ -21,6 +22,8 @@ def load_safetensors(
         checkpoint_path (Union[str, Path]): モデルのチェックポイントファイルのパス
         model (torch.nn.Module): 読み込む対象のモデル
         for_infer (bool): 推論用に読み込むかどうかのフラグ
+        device (Union[str, torch.device]): 読み込むデバイス
+        assign (bool): load_state_dict の assign オプションを利用するかどうか (default: False)
 
     Returns:
         tuple[torch.nn.Module, Optional[int]]: 読み込まれたモデルとイテレーション回数（存在する場合）
@@ -28,15 +31,15 @@ def load_safetensors(
 
     tensors: dict[str, Any] = {}
     iteration: Optional[int] = None
-    with safe_open(str(checkpoint_path), framework="pt", device=device) as f:  # type: ignore
+    with safe_open(str(checkpoint_path), framework="pt", device=str(device)) as f:  # type: ignore
         for key in f.keys():
             if key == "iteration":
                 iteration = f.get_tensor(key).item()
             tensors[key] = f.get_tensor(key)
     if hasattr(model, "module"):
-        result = model.module.load_state_dict(tensors, strict=False)
+        result = model.module.load_state_dict(tensors, strict=False, assign=assign)
     else:
-        result = model.load_state_dict(tensors, strict=False)
+        result = model.load_state_dict(tensors, strict=False, assign=assign)
     for key in result.missing_keys:
         if key.startswith("enc_q") and for_infer:
             continue

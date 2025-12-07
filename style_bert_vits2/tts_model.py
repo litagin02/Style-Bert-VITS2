@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import gc
 import time
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, Union
 
 import numpy as np
 import onnxruntime
+import torch
 from numpy.typing import NDArray
 from pydantic import BaseModel, Field
 
@@ -30,9 +31,6 @@ from style_bert_vits2.voice import adjust_voice
 
 if TYPE_CHECKING:
     from style_bert_vits2.models.models import SynthesizerTrn
-    from style_bert_vits2.models.models_jp_extra import (
-        SynthesizerTrn as SynthesizerTrnJPExtra,
-    )
 
 
 class NullModelParam(BaseModel):
@@ -62,6 +60,7 @@ class TTSModel:
         style_vec_path: Union[Path, NDArray[Any]],
         device: str = "cpu",
         onnx_providers: Sequence[Union[str, tuple[str, dict[str, Any]]]] = [("CPUExecutionProvider", {"arena_extend_strategy": "kSameAsRequested"})],
+        model_dtype: Optional[torch.dtype] = None,
     ) -> None:  # fmt: skip
         """
         Style-Bert-VITS2 の音声合成モデルを初期化する。
@@ -73,11 +72,13 @@ class TTSModel:
             style_vec_path (Union[Path, NDArray[Any]]): スタイルベクトル (style_vectors.npy) のパス (直接 NDArray を指定することも可能)
             device (str): PyTorch 推論での音声合成時に利用するデバイス (cpu, cuda, mps など)
             onnx_providers (list[str]): ONNX 推論で利用する ExecutionProvider (CPUExecutionProvider, CUDAExecutionProvider など)
+            model_dtype (Optional[torch.dtype]): モデルの dtype (torch.float16, torch.bfloat16 など). None の場合は FP32
         """
 
         self.model_path: Path = model_path
         self.device: str = device
         self.onnx_providers: Sequence[Union[str, tuple[str, dict[str, Any]]]] = onnx_providers  # fmt: skip
+        self.model_dtype: Optional[torch.dtype] = model_dtype
 
         # ONNX 形式のモデルかどうか
         if self.model_path.suffix == ".onnx":
@@ -125,7 +126,8 @@ class TTSModel:
         self.style_vector_inference: Optional[Any] = None
 
         # net_g / null_model_params は PyTorch 推論時のみ遅延初期化される
-        self.net_g: Union[SynthesizerTrn, SynthesizerTrnJPExtra, None] = None
+        # v3.0.0 以降は SynthesizerTrn のみサポート
+        self.net_g: Optional[SynthesizerTrn] = None
         self.null_model_params: Optional[dict[int, NullModelParam]] = None
 
         # onnx_session は ONNX 推論時のみ遅延初期化される
@@ -148,6 +150,7 @@ class TTSModel:
                 version=self.hyper_parameters.version,
                 device=self.device,
                 hps=self.hyper_parameters,
+                model_dtype=self.model_dtype,
             )
             logger.info(
                 f'Model loaded successfully from {self.model_path} to "{self.device}" device ({time.time() - start_time:.2f}s)'
@@ -165,6 +168,7 @@ class TTSModel:
                     version=self.hyper_parameters.version,
                     device=self.device,
                     hps=self.hyper_parameters,
+                    model_dtype=self.model_dtype,
                 )
                 # 愚直。もっと上手い方法ありそう
                 params = zip(
@@ -240,8 +244,6 @@ class TTSModel:
 
         # PyTorch 推論時
         if self.net_g is not None:
-            import torch
-
             del self.net_g
             self.net_g = None
 
@@ -287,7 +289,6 @@ class TTSModel:
         """
 
         if self.style_vector_inference is None:
-
             # pyannote.audio は scikit-learn などの大量の重量級ライブラリに依存しているため、
             # TTSModel.infer() に reference_audio_path を指定し音声からスタイルベクトルを推論する場合のみ遅延 import する
             try:
@@ -298,8 +299,6 @@ class TTSModel:
                 )
 
             # スタイルベクトルを取得するための推論モデルを初期化
-            import torch
-
             self.style_vector_inference = pyannote.audio.Inference(
                 model=pyannote.audio.Model.from_pretrained(
                     "pyannote/wespeaker-voxceleb-resnet34-LM"
@@ -318,7 +317,6 @@ class TTSModel:
     def convert_to_16_bit_wav(data: NDArray[Any]) -> NDArray[Any]:
         """
         音声データを 16-bit int 形式に変換する。
-        gradio.processing_utils.convert_to_16_bit_wav() を移植したもの。
 
         Args:
             data (NDArray[Any]): 音声データ
@@ -329,7 +327,10 @@ class TTSModel:
 
         # Based on: https://docs.scipy.org/doc/scipy/reference/generated/scipy.io.wavfile.write.html
         if data.dtype in [np.float64, np.float32, np.float16]:  # type: ignore
-            data = data / np.abs(data).max()
+            # Only normalize if max exceeds 1.0 to prevent clipping
+            max_val = np.abs(data).max()
+            if max_val > 1.0:
+                data = data / max_val
             data = data * 32767
             data = data.astype(np.int16)
         elif data.dtype == np.int32:
@@ -408,9 +409,10 @@ class TTSModel:
         """
 
         logger.info(f"Start generating audio data from text:\n{text}")
-        if language != "JP" and self.hyper_parameters.version.endswith("JP-Extra"):
+        # v3.0.0 以降は日本語 (JP) のみサポート
+        if language != Languages.JP:
             raise ValueError(
-                "The model is trained with JP-Extra, but the language is not JP"
+                f"Language {language} not supported. Only JP is supported in v3.0+"
             )
         if reference_audio_path == "":
             reference_audio_path = None
@@ -429,10 +431,6 @@ class TTSModel:
         # PyTorch 推論時
         start_time = time.time()
         if not self.is_onnx_model:
-            import torch
-
-            from style_bert_vits2.models.infer import infer
-
             if null_model_params is not None:
                 self.null_model_params = null_model_params
             else:
@@ -448,6 +446,11 @@ class TTSModel:
             assert self.net_g is not None
 
             # 通常のテキストから音声を生成
+            # BERT dtype: use model_dtype to match the model
+            bert_dtype = self.model_dtype
+
+            from style_bert_vits2.models.infer import infer
+
             if not line_split:
                 with torch.no_grad():
                     audio = infer(
@@ -466,6 +469,7 @@ class TTSModel:
                         style_vec=style_vector,
                         given_phone=given_phone,
                         given_tone=given_tone,
+                        bert_dtype=bert_dtype,
                     )
 
             # 改行ごとに分割して音声を生成
@@ -489,6 +493,7 @@ class TTSModel:
                                 assist_text=assist_text,
                                 assist_text_weight=assist_text_weight,
                                 style_vec=style_vector,
+                                bert_dtype=bert_dtype,
                             )
                         )
                         if i != len(texts) - 1:
@@ -568,6 +573,159 @@ class TTSModel:
         audio = self.convert_to_16_bit_wav(audio)
         return (self.hyper_parameters.data.sampling_rate, audio)
 
+    def infer_stream(
+        self,
+        text: str,
+        language: Languages = Languages.JP,
+        speaker_id: int = 0,
+        reference_audio_path: Optional[str] = None,
+        sdp_ratio: float = DEFAULT_SDP_RATIO,
+        noise: float = DEFAULT_NOISE,
+        noise_w: float = DEFAULT_NOISEW,
+        length: float = DEFAULT_LENGTH,
+        line_split: bool = False,
+        split_interval: float = DEFAULT_SPLIT_INTERVAL,
+        assist_text: Optional[str] = None,
+        assist_text_weight: float = DEFAULT_ASSIST_TEXT_WEIGHT,
+        use_assist_text: bool = False,
+        style: str = DEFAULT_STYLE,
+        style_weight: float = DEFAULT_STYLE_WEIGHT,
+        given_phone: Optional[list[str]] = None,
+        given_tone: Optional[list[int]] = None,
+        chunk_size: int = 100,
+        overlap_size: int = 16,
+    ) -> Iterator[tuple[int, NDArray[Any]]]:
+        """
+        テキストから音声をストリーミング合成する。
+
+        Args:
+            text (str): 読み上げるテキスト
+            language (Languages, optional): 言語. Defaults to Languages.JP.
+            speaker_id (int, optional): 話者 ID. Defaults to 0.
+            reference_audio_path (Optional[str], optional): 音声スタイルの参照元の音声ファイルのパス. Defaults to None.
+            sdp_ratio (float, optional): DP と SDP の混合比. Defaults to DEFAULT_SDP_RATIO.
+            noise (float, optional): DP に与えられるノイズ. Defaults to DEFAULT_NOISE.
+            noise_w (float, optional): SDP に与えられるノイズ. Defaults to DEFAULT_NOISEW.
+            length (float, optional): 生成音声の長さ（話速）のパラメータ. Defaults to DEFAULT_LENGTH.
+            line_split (bool, optional): テキストを改行ごとに分割して生成するか (ストリーミングでは False 推奨). Defaults to False.
+            split_interval (float, optional): 改行ごとの無音 (秒). Defaults to DEFAULT_SPLIT_INTERVAL.
+            assist_text (Optional[str], optional): 感情表現の参照元の補助テキスト. Defaults to None.
+            assist_text_weight (float, optional): 補助テキストを適用する強さ. Defaults to DEFAULT_ASSIST_TEXT_WEIGHT.
+            use_assist_text (bool, optional): 補助テキストを使用するか. Defaults to False.
+            style (str, optional): 音声スタイル. Defaults to DEFAULT_STYLE.
+            style_weight (float, optional): 音声スタイルを適用する強さ. Defaults to DEFAULT_STYLE_WEIGHT.
+            given_phone (Optional[list[str]], optional): 指定された音素列. Defaults to None.
+            given_tone (Optional[list[int]], optional): 指定されたトーン列. Defaults to None.
+            chunk_size (int, optional): チャンクサイズ (フレーム数). Defaults to 65.
+            overlap_size (int, optional): オーバーラップサイズ (フレーム数). Defaults to 22.
+
+        Yields:
+            tuple[int, NDArray[Any]]: サンプリングレートと音声チャンク (16bit PCM)
+
+        Note:
+            - ONNX 推論ではストリーミングはサポートされていません
+            - line_split=True の場合は通常の infer() と同じ動作になります
+        """
+
+        logger.info(f"Start streaming audio generation from text:\n{text}")
+        # v3.0.0 以降は日本語 (JP) のみサポート
+        if language != Languages.JP:
+            raise ValueError(
+                f"Language {language} not supported. Only JP is supported in v3.0+"
+            )
+        if reference_audio_path == "":
+            reference_audio_path = None
+        if assist_text == "" or not use_assist_text:
+            assist_text = None
+
+        # ONNX モデルではストリーミングはサポートされていない
+        if self.is_onnx_model:
+            raise ValueError("Streaming inference is not supported for ONNX models")
+
+        # スタイルベクトルを取得
+        if reference_audio_path is None:
+            style_id = self.style2id[style]
+            style_vector = self.get_style_vector(style_id, style_weight)
+        else:
+            style_vector = self.get_style_vector_from_audio(
+                reference_audio_path, style_weight
+            )
+
+        # モデルがロードされていない場合はロードする
+        if self.net_g is None:
+            self.load()
+        assert self.net_g is not None
+
+        # BERT dtype
+        bert_dtype = self.model_dtype
+
+        start_time = time.time()
+        sampling_rate = self.hyper_parameters.data.sampling_rate
+
+        # line_split の場合は各行を順番に処理
+        if line_split:
+            texts = [t for t in text.split("\n") if t != ""]
+            for i, t in enumerate(texts):
+                # 各行をストリーミング生成
+                from style_bert_vits2.models.infer import infer_stream
+
+                audio_generator = infer_stream(
+                    text=t,
+                    style_vec=style_vector,
+                    sdp_ratio=sdp_ratio,
+                    noise_scale=noise,
+                    noise_scale_w=noise_w,
+                    length_scale=length,
+                    sid=speaker_id,
+                    language=language,
+                    hps=self.hyper_parameters,
+                    net_g=self.net_g,
+                    device=self.device,
+                    assist_text=assist_text,
+                    assist_text_weight=assist_text_weight,
+                    bert_dtype=bert_dtype,
+                    chunk_size=chunk_size,
+                    overlap_size=overlap_size,
+                )
+                for audio_chunk in audio_generator:
+                    yield (sampling_rate, self.convert_to_16_bit_wav(audio_chunk))
+                # 行間の無音を挿入
+                if i != len(texts) - 1:
+                    silence = np.zeros(
+                        int(sampling_rate * split_interval), dtype=np.int16
+                    )
+                    yield (sampling_rate, silence)
+        else:
+            # 単一テキストをストリーミング生成
+            from style_bert_vits2.models.infer import infer_stream
+
+            audio_generator = infer_stream(
+                text=text,
+                style_vec=style_vector,
+                sdp_ratio=sdp_ratio,
+                noise_scale=noise,
+                noise_scale_w=noise_w,
+                length_scale=length,
+                sid=speaker_id,
+                language=language,
+                hps=self.hyper_parameters,
+                net_g=self.net_g,
+                device=self.device,
+                assist_text=assist_text,
+                assist_text_weight=assist_text_weight,
+                given_phone=given_phone,
+                given_tone=given_tone,
+                bert_dtype=bert_dtype,
+                chunk_size=chunk_size,
+                overlap_size=overlap_size,
+            )
+            for audio_chunk in audio_generator:
+                yield (sampling_rate, self.convert_to_16_bit_wav(audio_chunk))
+
+        logger.info(
+            f"Streaming audio generation completed ({time.time() - start_time:.2f}s)"
+        )
+
 
 class TTSModelInfo(BaseModel):
     name: str
@@ -588,6 +746,7 @@ class TTSModelHolder:
         device: str,
         onnx_providers: Sequence[Union[str, tuple[str, dict[str, Any]]]],
         ignore_onnx: bool = False,
+        model_dtype: Optional[torch.dtype] = None,
     ) -> None:
         """
         Style-Bert-VITS2 の音声合成モデルを管理するクラスを初期化する。
@@ -610,12 +769,14 @@ class TTSModelHolder:
             device (str): PyTorch 推論での音声合成時に利用するデバイス (cpu, cuda, mps など)
             onnx_providers (list[str]): ONNX 推論で利用する ExecutionProvider (CPUExecutionProvider, CUDAExecutionProvider など)
             ignore_onnx (bool, optional): ONNX モデルを除外するかどうか. Defaults to False.
+            model_dtype (Optional[torch.dtype], optional): モデルの dtype (torch.float16, torch.bfloat16 など). None の場合は FP32. Defaults to None.
         """
 
         self.root_dir: Path = model_root_dir
         self.device: str = device
         self.onnx_providers: Sequence[Union[str, tuple[str, dict[str, Any]]]] = onnx_providers  # fmt: skip
         self.ignore_onnx: bool = ignore_onnx
+        self.model_dtype: Optional[torch.dtype] = model_dtype
         self.model_files_dict: dict[str, list[Path]] = {}
         self.current_model: Optional[TTSModel] = None
         self.model_names: list[str] = []
@@ -700,12 +861,16 @@ class TTSModelHolder:
                 style_vec_path=self.root_dir / model_name / "style_vectors.npy",
                 device=self.device,
                 onnx_providers=self.onnx_providers,
+                model_dtype=self.model_dtype,
             )
 
         return self.current_model
 
     def get_model_for_gradio(self, model_name: str, model_path_str: str):
         import gradio as gr
+
+        from style_bert_vits2.constants import Languages
+        from style_bert_vits2.nlp import bert_models
 
         model_path = Path(model_path_str)
         if model_name not in self.model_files_dict:
@@ -731,6 +896,15 @@ class TTSModelHolder:
             device=self.device,
             onnx_providers=self.onnx_providers,
         )
+        # Trigger loading of the main model
+        self.current_model.load()
+
+        # Trigger loading of BERT models (JP only in v3.0+)
+        # This avoids the delay during the first inference.
+        if not self.current_model.is_onnx_model:
+            bert_models.load_model(Languages.JP)
+            bert_models.load_tokenizer(Languages.JP)
+
         speakers = list(self.current_model.spk2id.keys())
         styles = list(self.current_model.style2id.keys())
         return (

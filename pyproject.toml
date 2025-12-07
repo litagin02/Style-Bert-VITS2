@@ -1,49 +1,39 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.9.13,<0.10.0"]
+build-backend = "uv_build"
 
 [project]
 name = "style-bert-vits2"
-dynamic = ["version"]
+version = "3.0.0.dev0"
 description = "Style-Bert-VITS2: Bert-VITS2 with more controllable voice styles."
 readme = "README.md"
-requires-python = ">=3.9"
-license = "AGPL-3.0"
+requires-python = ">=3.10"
+license = "AGPL-3.0-only"
 keywords = []
 authors = [
-    { name = "litagin02", email = "139731664+litagin02@users.noreply.github.com" },
+  { name = "litagin02", email = "139731664+litagin02@users.noreply.github.com" },
 ]
 classifiers = [
-    "Development Status :: 4 - Beta",
-    "Programming Language :: Python",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: Implementation :: CPython",
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: Implementation :: CPython",
 ]
 dependencies = [
-    "cmudict",
-    "cn2an",
-    "g2p_en",
-    "jieba",
-    "loguru",
-    "nltk<=3.8.1",
-    "num2words",
-    "numba",
-    "numpy<2",
-    "onnxruntime",
-    "pydantic>=2.0",
-    "pyopenjtalk-dict",
-    "pypinyin",
-    "pyworld-prebuilt",
-    "safetensors",
-    "transformers",
-]
-
-[project.optional-dependencies]
-torch = [
-    "accelerate",
-    "torch>=2.1",
+  "e2k @ git+https://github.com/tsukumijima/e2k.git@master",
+  "jaconv",
+  "loguru",
+  "num2words",
+  "numba",
+  "numpy",
+  "onnxruntime",
+  "pydantic",
+  "pyopenjtalk-plus",
+  "pyworld-prebuilt",
+  "safetensors",
+  "transformers",
 ]
 
 [project.urls]
@@ -51,90 +41,70 @@ Documentation = "https://github.com/litagin02/Style-Bert-VITS2#readme"
 Issues = "https://github.com/litagin02/Style-Bert-VITS2/issues"
 Source = "https://github.com/litagin02/Style-Bert-VITS2"
 
-[tool.hatch.version]
-path = "style_bert_vits2/constants.py"
+[project.optional-dependencies]
+cpu = ["torch>=2.9", "torchaudio>=2.9"]
+cu128 = ["torch>=2.9", "torchaudio>=2.9"]
 
-[tool.hatch.build.targets.sdist]
-only-include = [
-    ".vscode",
-    "dict_data/default.csv",
-    "docs",
-    "style_bert_vits2",
-    "tests",
-    "LGPL_LICENSE",
-    "LICENSE",
-    "pyproject.toml",
-    "README.md",
+[tool.uv]
+conflicts = [[{ extra = "cpu" }, { extra = "cu128" }]]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu", extra = "cpu" },
+  { index = "pytorch-cu128", extra = "cu128" },
 ]
-exclude = [".git", ".gitignore", ".gitattributes"]
+torchaudio = [
+  { index = "pytorch-cpu", extra = "cpu" },
+  { index = "pytorch-cu128", extra = "cu128" },
+]
 
-[tool.hatch.build.targets.wheel]
-packages = ["style_bert_vits2"]
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
-# for PyTorch inference
-[tool.hatch.envs.test]
-dependencies = [
-    "coverage[toml]>=6.5",
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[dependency-groups]
+dev = [
+    "gradio<6.0",
+    "ipykernel",
+    "librosa",
+    "matplotlib",
+    "onnx",
+    "onnxconverter-common",
+    "onnxscript",
+    "onnxsim-prebuilt",
+    "pyannote-audio==4.0.1",  # 4.0.2以降は torch==2.8.0 と pin されており 2.9 以降と競合するため
+    "pyloudnorm",
     "pytest",
+    "rich",
     "scipy",
+    "soundfile",
+    "tensorboard",
+    "tqdm",
+    "umap-learn",
 ]
-features = ["torch"]
-[tool.hatch.envs.test.scripts]
-# Usage: `hatch run test:test`
-test = "pytest -s tests/test_main.py::test_synthesize_cpu"
-# Usage: `hatch run test:test-cuda`
-test-cuda = "pytest -s tests/test_main.py::test_synthesize_cuda"
-# Usage: `hatch run test:coverage`
-test-cov = "coverage run -m pytest -s tests/test_main.py::test_synthesize_cpu"
-# Usage: `hatch run test:cov-report`
-cov-report = ["- coverage combine", "coverage report"]
-# Usage: `hatch run test:cov`
-cov = ["test-cov", "cov-report"]
-[[tool.hatch.envs.test.matrix]]
-python = ["3.9", "3.10", "3.11"]
 
-# for ONNX inference (without PyTorch dependency)
-[tool.hatch.envs.test-onnx]
-dependencies = [
-    "coverage[toml]>=6.5",
-    "pytest",
-    "scipy",
-    "onnxruntime-directml; sys_platform == 'win32'",
-    "onnxruntime-gpu; sys_platform != 'darwin'",
-]
-[tool.hatch.envs.test-onnx.scripts]
-# Usage: `hatch run test-onnx:test`
-test = "pytest -s tests/test_main.py::test_synthesize_onnx_cpu"
-# Usage: `hatch run test-onnx:test-cuda`
-test-cuda = "pytest -s tests/test_main.py::test_synthesize_onnx_cuda"
-# Usage: `hatch run test-onnx:test-directml`
-test-directml = "pytest -s tests/test_main.py::test_synthesize_onnx_directml"
-# Usage: `hatch run test-onnx:test-coreml`
-test-coreml = "pytest -s tests/test_main.py::test_synthesize_onnx_coreml"
-# Usage: `hatch run test-onnx:coverage`
-test-cov = "coverage run -m pytest -s tests/test_main.py::test_synthesize_onnx_cpu"
-# Usage: `hatch run test-onnx:cov-report`
-cov-report = ["- coverage combine", "coverage report"]
-# Usage: `hatch run test-onnx:cov`
-cov = ["test-cov", "cov-report"]
-[[tool.hatch.envs.test-onnx.matrix]]
-python = ["3.9", "3.10", "3.11"]
 
-[tool.hatch.envs.style]
-detached = true
-dependencies = ["black[jupyter]", "isort"]
-[tool.hatch.envs.style.scripts]
-# Usage: `hatch run style:check`
-check = [
-    "black --check --diff .",
-    "isort --check-only --diff --profile black --gitignore --lai 2 . --sg \"Data/*\" --sg \"inputs/*\" --sg \"model_assets/*\" --sg \"static/*\"",
+[tool.uv.build-backend]
+# パッケージはリポジトリ直下にあるので src レイアウトではなく root を使う
+module-name = "style_bert_vits2"
+module-root = ""
+# もともとの hatch sdist only-include を uv の include に寄せたもの
+source-include = [
+  ".vscode/**",
+  "dict_data/**",
+  "docs/**",
+  "tests/**",
+  "LGPL_LICENSE",
+  "LICENSE",
+  "README.md",
 ]
-# Usage: `hatch run style:fmt`
-fmt = [
-    "black .",
-    "isort --profile black --gitignore --lai 2 . --sg \"Data/*\" --sg \"inputs/*\" --sg \"model_assets/*\" --sg \"static/*\"",
-    "check",
-]
+source-exclude = [".git", ".gitignore", ".gitattributes"]
 
 [tool.coverage.run]
 source_pkgs = ["style_bert_vits2", "tests"]
@@ -149,8 +119,8 @@ tests = ["tests", "*/style-bert-vits2/tests"]
 [tool.coverage.report]
 exclude_lines = ["no cov", "if __name__ == .__main__.:", "if TYPE_CHECKING:"]
 
-[tool.ruff]
-extend-select = ["I"]
+[tool.ruff.lint]
+select = ["I"]
 
 [tool.ruff.lint.isort]
 lines-after-imports = 2

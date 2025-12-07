@@ -71,9 +71,9 @@ class Encoder(nn.Module):
                     kwargs["cond_layer_idx"] if "cond_layer_idx" in kwargs else 2
                 )
                 # logger.debug(self.gin_channels, self.cond_layer_idx)
-                assert (
-                    self.cond_layer_idx < self.n_layers
-                ), "cond_layer_idx should be less than n_layers"
+                assert self.cond_layer_idx < self.n_layers, (
+                    "cond_layer_idx should be less than n_layers"
+                )
         self.drop = nn.Dropout(p_dropout)
         self.attn_layers = nn.ModuleList()
         self.norm_layers_1 = nn.ModuleList()
@@ -106,6 +106,12 @@ class Encoder(nn.Module):
     ) -> torch.Tensor:
         attn_mask = x_mask.unsqueeze(2) * x_mask.unsqueeze(-1)
         x = x * x_mask
+
+        # Debug: Check input to encoder
+        if torch.isnan(x).any():
+            print(f"[DEBUG Encoder] NaN in input x")
+            print(f"  x dtype: {x.dtype}")
+
         for i in range(self.n_layers):
             if i == self.cond_layer_idx and g is not None:
                 g = self.spk_emb_linear(g.transpose(1, 2))
@@ -113,13 +119,61 @@ class Encoder(nn.Module):
                 g = g.transpose(1, 2)
                 x = x + g
                 x = x * x_mask
+                # Debug: After adding conditioning
+                if torch.isnan(x).any():
+                    print(f"[DEBUG Encoder] NaN in x after adding g in layer {i}")
+
+            # Debug: Before attention
+            if torch.isnan(x).any():
+                print(f"[DEBUG Encoder] NaN in x before attention in layer {i}")
+
             y = self.attn_layers[i](x, x, attn_mask)
+            # Debug: After attention
+            if torch.isnan(y).any():
+                print(f"[DEBUG Encoder] NaN in y after attention in layer {i}")
+                print(f"  y dtype: {y.dtype}, x dtype: {x.dtype}")
+
             y = self.drop(y)
+            # Debug: After dropout
+            if torch.isnan(y).any():
+                print(f"[DEBUG Encoder] NaN in y after dropout in layer {i}")
+
+            # Debug: Before norm_layers_1
+            x_plus_y = x + y
+            if torch.isnan(x_plus_y).any():
+                print(
+                    f"[DEBUG Encoder] NaN in (x + y) before norm_layers_1 in layer {i}"
+                )
+
             x = self.norm_layers_1[i](x + y)
+            # Debug: After norm_layers_1
+            if torch.isnan(x).any():
+                print(f"[DEBUG Encoder] NaN in x after norm_layers_1 in layer {i}")
+                print(f"  x dtype: {x.dtype}")
 
             y = self.ffn_layers[i](x, x_mask)
+            # Debug: After FFN
+            if torch.isnan(y).any():
+                print(f"[DEBUG Encoder] NaN in y after FFN in layer {i}")
+
             y = self.drop(y)
+            # Debug: After dropout
+            if torch.isnan(y).any():
+                print(f"[DEBUG Encoder] NaN in y after dropout (FFN) in layer {i}")
+
+            # Debug: Before norm_layers_2
+            x_plus_y = x + y
+            if torch.isnan(x_plus_y).any():
+                print(
+                    f"[DEBUG Encoder] NaN in (x + y) before norm_layers_2 in layer {i}"
+                )
+
             x = self.norm_layers_2[i](x + y)
+            # Debug: After norm_layers_2
+            if torch.isnan(x).any():
+                print(f"[DEBUG Encoder] NaN in x after norm_layers_2 in layer {i}")
+                print(f"  x dtype: {x.dtype}")
+
         x = x * x_mask
         return x
 
@@ -275,13 +329,39 @@ class MultiHeadAttention(nn.Module):
     def forward(
         self, x: torch.Tensor, c: torch.Tensor, attn_mask: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
+        # Debug: Check inputs
+        if torch.isnan(x).any():
+            print(f"[DEBUG MultiHeadAttention.forward] NaN in input x")
+        if torch.isnan(c).any():
+            print(f"[DEBUG MultiHeadAttention.forward] NaN in input c")
+
         q = self.conv_q(x)
+        # Debug: After conv_q
+        if torch.isnan(q).any():
+            print(f"[DEBUG MultiHeadAttention.forward] NaN in q after conv_q")
+            print(f"  q dtype: {q.dtype}")
+
         k = self.conv_k(c)
+        # Debug: After conv_k
+        if torch.isnan(k).any():
+            print(f"[DEBUG MultiHeadAttention.forward] NaN in k after conv_k")
+
         v = self.conv_v(c)
+        # Debug: After conv_v
+        if torch.isnan(v).any():
+            print(f"[DEBUG MultiHeadAttention.forward] NaN in v after conv_v")
 
         x, self.attn = self.attention(q, k, v, mask=attn_mask)
+        # Debug: After attention
+        if torch.isnan(x).any():
+            print(f"[DEBUG MultiHeadAttention.forward] NaN in x after self.attention")
+            print(f"  x dtype: {x.dtype}")
 
         x = self.conv_o(x)
+        # Debug: After conv_o
+        if torch.isnan(x).any():
+            print(f"[DEBUG MultiHeadAttention.forward] NaN in x after conv_o")
+
         return x
 
     def attention(
@@ -291,55 +371,132 @@ class MultiHeadAttention(nn.Module):
         value: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        SDPA-based attention with support for:
+        - mask
+        - block_length
+        - proximal_bias
+        - relative attention (window_size) for self-attention
+        """
+
         # reshape [b, d, t] -> [b, n_h, t, d_k]
         b, d, t_s, t_t = (*key.size(), query.size(2))
-        query = query.view(b, self.n_heads, self.k_channels, t_t).transpose(2, 3)
-        key = key.view(b, self.n_heads, self.k_channels, t_s).transpose(2, 3)
-        value = value.view(b, self.n_heads, self.k_channels, t_s).transpose(2, 3)
+        q = query.view(b, self.n_heads, self.k_channels, t_t).transpose(2, 3)
+        k = key.view(b, self.n_heads, self.k_channels, t_s).transpose(2, 3)
+        v = value.view(b, self.n_heads, self.k_channels, t_s).transpose(2, 3)
 
-        scores = torch.matmul(query / math.sqrt(self.k_channels), key.transpose(-2, -1))
+        device = q.device
+        dtype = q.dtype
+        scale = math.sqrt(self.k_channels)
+
+        # ---- build additive attention bias ----
+        # base bias shape: [1, 1, t_t, t_s] (broadcastable)
+        attn_bias = torch.zeros((1, 1, t_t, t_s), device=device, dtype=dtype)
+
+        # relative key logits (self-attention only)
         if self.window_size is not None:
-            assert (
-                t_s == t_t
-            ), "Relative attention is only available for self-attention."
-            key_relative_embeddings = self._get_relative_embeddings(self.emb_rel_k, t_s)
-            rel_logits = self._matmul_with_relative_keys(
-                query / math.sqrt(self.k_channels), key_relative_embeddings
+            assert t_s == t_t, (
+                "Relative attention is only available for self-attention."
             )
-            scores_local = self._relative_position_to_absolute_position(rel_logits)
-            scores = scores + scores_local
+            key_relative_embeddings = self._get_relative_embeddings(
+                self.emb_rel_k, t_s
+            ).to(device=device, dtype=dtype)
+
+            q_for_rel = q / scale
+
+            rel_logits = self._matmul_with_relative_keys(
+                q_for_rel, key_relative_embeddings
+            )  # [b, h, t, 2*t-1]
+            scores_local = self._relative_position_to_absolute_position(
+                rel_logits
+            )  # [b,h,t,t]
+
+            attn_bias = attn_bias + scores_local  # broadcast add
+
+        # proximal bias (self-attention only)
         if self.proximal_bias:
             assert t_s == t_t, "Proximal bias is only available for self-attention."
-            scores = scores + self._attention_bias_proximal(t_s).to(
-                device=scores.device, dtype=scores.dtype
+            attn_bias = attn_bias + self._attention_bias_proximal(t_s).to(
+                device=device, dtype=dtype
             )
+
+        # user-provided mask -> additive bias
         if mask is not None:
-            scores = scores.masked_fill(mask == 0, -1e4)
-            if self.block_length is not None:
-                assert (
-                    t_s == t_t
-                ), "Local attention is only available for self-attention."
-                block_mask = (
-                    torch.ones_like(scores)
-                    .triu(-self.block_length)
-                    .tril(self.block_length)
-                )
-                scores = scores.masked_fill(block_mask == 0, -1e4)
-        p_attn = F.softmax(scores, dim=-1)  # [b, n_h, t_t, t_s]
-        p_attn = self.drop(p_attn)
-        output = torch.matmul(p_attn, value)
+            m = mask.to(device=device)
+
+            # Normalize mask dims to 4D and keep it broadcastable.
+            # Expected semantic: 0 = disallow, 1 = allow.
+            if m.dim() == 2:
+                # [t_t, t_s]
+                m = m.unsqueeze(0).unsqueeze(0)
+            elif m.dim() == 3:
+                # [b, t_t, t_s]
+                m = m.unsqueeze(1)
+            # else assume already 4D-like
+
+            # Convert to bool allow-mask
+            m_allow = m != 0
+
+            # Build mask bias with same shape as m (for clean broadcasting)
+            mask_bias = torch.zeros_like(m_allow, dtype=dtype, device=device)
+            mask_bias = mask_bias.masked_fill(~m_allow, -1e4)
+
+            attn_bias = attn_bias + mask_bias
+
+        # block_length local attention mask (self-attention only)
+        if self.block_length is not None:
+            assert t_s == t_t, "Local attention is only available for self-attention."
+            # [t, t]
+            local = torch.ones((t_t, t_s), device=device, dtype=torch.bool)
+            local = local.triu(-self.block_length).tril(self.block_length)
+            local = local.unsqueeze(0).unsqueeze(0)  # [1,1,t,t]
+
+            block_bias = torch.zeros_like(local, dtype=dtype, device=device)
+            block_bias = block_bias.masked_fill(~local, -1e4)
+
+            attn_bias = attn_bias + block_bias
+
+        # Safety: avoid inf/-inf from upstream contaminating softmax
+        attn_bias = torch.nan_to_num(attn_bias, neginf=-1e4, posinf=1e4)
+
+        # ---- SDPA main path ----
+        dropout_p = self.p_dropout if self.training else 0.0
+
+        # SDPA computes softmax((q k^T)/sqrt(d) + attn_mask) v
+        # We pass attn_bias as additive mask.
+        out = F.scaled_dot_product_attention(
+            q,
+            k,
+            v,
+            attn_mask=attn_bias,
+            dropout_p=dropout_p,
+            is_causal=False,
+        )  # [b, h, t_t, d_k]
+
+        # ---- build p_attn for compatibility/relative-value path ----
+        # Compute attention weights explicitly using the same bias
+        scores_base = torch.matmul(q / scale, k.transpose(-2, -1))
+        scores = scores_base + attn_bias
+        scores = torch.nan_to_num(scores, neginf=-1e4, posinf=1e4)
+
+        p_attn = F.softmax(scores, dim=-1)  # [b, h, t_t, t_s]
+        p_attn = self.drop(p_attn) if self.training and self.p_dropout > 0 else p_attn
+
+        # ---- relative value contribution (same as original) ----
         if self.window_size is not None:
             relative_weights = self._absolute_position_to_relative_position(p_attn)
             value_relative_embeddings = self._get_relative_embeddings(
                 self.emb_rel_v, t_s
-            )
-            output = output + self._matmul_with_relative_values(
+            ).to(device=device, dtype=dtype)
+
+            out = out + self._matmul_with_relative_values(
                 relative_weights, value_relative_embeddings
             )
-        output = (
-            output.transpose(2, 3).contiguous().view(b, d, t_t)
-        )  # [b, n_h, t_t, d_k] -> [b, d, t_t]
-        return output, p_attn
+
+        # ---- reshape back ----
+        out = out.transpose(2, 3).contiguous().view(b, d, t_t)
+
+        return out, p_attn
 
     def _matmul_with_relative_values(
         self, x: torch.Tensor, y: torch.Tensor

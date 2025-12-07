@@ -82,11 +82,11 @@ class UserDictWord(BaseModel):
             return mora_count
 
         if mora_count is None:
-            rule_others = (
-                "[イ][ェ]|[ヴ][ャュョ]|[トド][ゥ]|[テデ][ィャュョ]|[デ][ェ]|[クグ][ヮ]"
+            rule_others = "[イ][ェ]|[ヴ][ャュョ]|[クグトド][ゥ]|[テデ][ィャュョ]|[デ][ェ]|[クグ][ヮ]"
+            rule_line_i = "[キシチニヒミリギジヂビピ][ェャュョ]|[シ][ィ]"
+            rule_line_u = (
+                "[クツフヴグ][ァ]|[ウクスツフヴグズ][ィ]|[ウクツフヴグ][ェォ]|[フ][ュ]"
             )
-            rule_line_i = "[キシチニヒミリギジビピ][ェャュョ]"
-            rule_line_u = "[ツフヴ][ァ]|[ウスツフヴズ][ィ]|[ウツフヴ][ェォ]"
             rule_one_mora = "[ァ-ヴー]"
             mora_count = len(
                 findall(

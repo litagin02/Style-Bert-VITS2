@@ -3,7 +3,7 @@ chcp 65001 > NUL
 
 pushd %~dp0
 echo Running initialize.py...
-venv\Scripts\python initialize.py
+.venv\Scripts\python scripts\initialize.py
 
 if %errorlevel% neq 0 ( pause & popd & exit /b %errorlevel% )
 

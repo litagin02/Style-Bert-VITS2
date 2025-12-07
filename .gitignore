@@ -7,30 +7,15 @@ dist/
 .ruff_cache/
 .DS_Store
 ._*
+.claude/
 
 /*.yml
 !/default_config.yml
-/bert/*/*.bin
-/bert/*/*.h5
-/bert/*/*.model
-/bert/*/*.safetensors
-/bert/*/*.msgpack
-/bert/*/*.onnx
-
 /configs/paths.yml
 
-/pretrained/*.safetensors
-/pretrained/*.pth
 
-/pretrained_jp_extra/*.safetensors
-/pretrained_jp_extra/*.pth
+/pretrained_v3/*.safetensors
 
-/slm/*/*.bin
-
-/scripts/test/
-/scripts/lib/
-/scripts/Style-Bert-VITS2/
-/scripts/sbv2/
 *.zip
 *.csv
 *.bak
@@ -43,5 +28,6 @@ safetensors.ipynb
 # pyopenjtalk's dictionary
 *.dic
 
-playground.ipynb
-playgrounds/
+/playground.ipynb
+/playgrounds/
+/reference/
