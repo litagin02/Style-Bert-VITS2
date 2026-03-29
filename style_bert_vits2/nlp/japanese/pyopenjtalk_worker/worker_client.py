@@ -16,7 +16,7 @@ class WorkerClient:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         # timeout: 60 seconds
         sock.settimeout(60)
-        sock.connect((socket.gethostname(), port))
+        sock.connect(("localhost", port))
         self.sock = sock
 
     def __enter__(self) -> "WorkerClient":
