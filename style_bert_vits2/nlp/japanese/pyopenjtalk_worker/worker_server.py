@@ -21,8 +21,9 @@ PYOPENJTALK_FUNC_DICT = {
     "make_label": pyopenjtalk.make_label,
     "mecab_dict_index": pyopenjtalk.mecab_dict_index,
     "update_global_jtalk_with_user_dict": pyopenjtalk.update_global_jtalk_with_user_dict,
-    "unset_user_dict": pyopenjtalk.unset_user_dict,
 }
+if hasattr(pyopenjtalk, 'unset_user_dict'):
+    PYOPENJTALK_FUNC_DICT["unset_user_dict"] = pyopenjtalk.unset_user_dict
 
 
 class WorkerServer:
@@ -55,13 +56,16 @@ class WorkerServer:
             elif request_type == RequestType.PYOPENJTALK:
                 func_name = request.get("func")
                 assert isinstance(func_name, str)
-                func = PYOPENJTALK_FUNC_DICT[func_name]
-                args = request.get("args")
-                kwargs = request.get("kwargs")
-                assert isinstance(args, list)
-                assert isinstance(kwargs, dict)
-                ret = func(*args, **kwargs)
-                response = {"success": True, "return": ret}
+                if func_name not in PYOPENJTALK_FUNC_DICT:
+                    response = {"success": True, "return": None}
+                else:
+                    func = PYOPENJTALK_FUNC_DICT[func_name]
+                    args = request.get("args")
+                    kwargs = request.get("kwargs")
+                    assert isinstance(args, list)
+                    assert isinstance(kwargs, dict)
+                    ret = func(*args, **kwargs)
+                    response = {"success": True, "return": ret}
             else:
                 # NOT REACHED
                 response = request
@@ -72,7 +76,7 @@ class WorkerServer:
         logger.info("start pyopenjtalk worker server")
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
             server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            server_socket.bind((socket.gethostname(), port))
+            server_socket.bind(("localhost", port))
             server_socket.listen()
             sockets = [server_socket]
             no_client_since = time.time()
