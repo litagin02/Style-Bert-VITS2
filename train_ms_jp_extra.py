@@ -7,7 +7,10 @@ import platform
 import torch
 import torch.distributed as dist
 from huggingface_hub import HfApi
-from torch.cuda.amp import GradScaler, autocast
+try:
+    from torch.cuda.amp import GradScaler, autocast
+except ImportError:
+    from torch.amp import GradScaler, autocast
 from torch.nn import functional as F
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
@@ -38,17 +41,23 @@ from style_bert_vits2.nlp.symbols import SYMBOLS
 from style_bert_vits2.utils.stdout_wrapper import SAFE_STDOUT
 
 
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.backends.cudnn.allow_tf32 = (
-    True  # If encontered training problem,please try to disable TF32.
-)
+if torch.cuda.is_available():
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.backends.cuda.sdp_kernel("flash")
+    torch.backends.cuda.enable_flash_sdp(True)
+    torch.backends.cuda.enable_mem_efficient_sdp(True)
+
+# Device detection: CUDA > MPS > CPU
+if torch.cuda.is_available():
+    _DEVICE = "cuda"
+elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+    _DEVICE = "mps"
+else:
+    _DEVICE = "cpu"
+
 torch.set_num_threads(1)
 torch.set_float32_matmul_precision("medium")
-torch.backends.cuda.sdp_kernel("flash")
-torch.backends.cuda.enable_flash_sdp(True)
-torch.backends.cuda.enable_mem_efficient_sdp(
-    True
-)  # Not available if torch version is lower than 2.0
 
 config = get_config()
 global_step = 0
@@ -128,8 +137,8 @@ def run():
     )
 
     backend = "nccl"
-    if platform.system() == "Windows":
-        backend = "gloo"  # If Windows,switch to gloo backend.
+    if platform.system() == "Windows" or platform.system() == "Darwin":
+        backend = "gloo"  # macOS/Windows: switch to gloo backend.
     dist.init_process_group(
         backend=backend,
         init_method="env://",
@@ -207,7 +216,8 @@ def run():
         )
 
     torch.manual_seed(hps.train.seed)
-    torch.cuda.set_device(local_rank)
+    if torch.cuda.is_available():
+        torch.cuda.set_device(local_rank)
 
     global global_step
     writer = None
@@ -299,13 +309,13 @@ def run():
             3,
             0.1,
             gin_channels=hps.model.gin_channels if hps.data.n_speakers != 0 else 0,
-        ).cuda(local_rank)
+        ).to(_DEVICE)
     else:
         net_dur_disc = None
     if hps.model.use_wavlm_discriminator is True:
         net_wd = WavLMDiscriminator(
             hps.model.slm.hidden, hps.model.slm.nlayers, hps.model.slm.initial_channel
-        ).cuda(local_rank)
+        ).to(_DEVICE)
     else:
         net_wd = None
     if hps.model.use_spk_conditioned_encoder is True:
@@ -346,7 +356,7 @@ def run():
         use_spectral_norm=hps.model.use_spectral_norm,
         gin_channels=hps.model.gin_channels,
         slm=hps.model.slm,
-    ).cuda(local_rank)
+    ).to(_DEVICE)
     if getattr(hps.train, "freeze_JP_bert", False):
         logger.info("Freezing (JP) bert encoder !!!")
         for param in net_g.enc_p.bert_proj.parameters():
@@ -361,7 +371,7 @@ def run():
         for param in net_g.dec.parameters():
             param.requires_grad = False
 
-    net_d = MultiPeriodDiscriminator(hps.model.use_spectral_norm).cuda(local_rank)
+    net_d = MultiPeriodDiscriminator(hps.model.use_spectral_norm).to(_DEVICE)
     optim_g = torch.optim.AdamW(
         filter(lambda p: p.requires_grad, net_g.parameters()),
         hps.train.learning_rate,
@@ -392,28 +402,21 @@ def run():
         )
     else:
         optim_wd = None
-    net_g = DDP(
-        net_g,
-        device_ids=[local_rank],
-        # bucket_cap_mb=512
-    )
-    net_d = DDP(
-        net_d,
-        device_ids=[local_rank],
-        # bucket_cap_mb=512
-    )
-    if net_dur_disc is not None:
-        net_dur_disc = DDP(
-            net_dur_disc,
-            device_ids=[local_rank],
-            # bucket_cap_mb=512,
-        )
-    if net_wd is not None:
-        net_wd = DDP(
-            net_wd,
-            device_ids=[local_rank],
-            #  bucket_cap_mb=512
-        )
+    if _DEVICE == "cuda":
+        net_g = DDP(net_g, device_ids=[local_rank])
+        net_d = DDP(net_d, device_ids=[local_rank])
+        if net_dur_disc is not None:
+            net_dur_disc = DDP(net_dur_disc, device_ids=[local_rank])
+        if net_wd is not None:
+            net_wd = DDP(net_wd, device_ids=[local_rank])
+    else:
+        # MPS/CPU mode: DDP without device_ids
+        net_g = DDP(net_g)
+        net_d = DDP(net_d)
+        if net_dur_disc is not None:
+            net_dur_disc = DDP(net_dur_disc)
+        if net_wd is not None:
+            net_wd = DDP(net_wd)
 
     if utils.is_resuming(model_dir):
         if net_dur_disc is not None:
@@ -725,20 +728,15 @@ def train_and_evaluate(
                 - net_g.module.noise_scale_delta * global_step
             )
             net_g.module.current_mas_noise_scale = max(current_mas_noise_scale, 0.0)
-        x, x_lengths = x.cuda(local_rank, non_blocking=True), x_lengths.cuda(
-            local_rank, non_blocking=True
-        )
-        spec, spec_lengths = spec.cuda(
-            local_rank, non_blocking=True
-        ), spec_lengths.cuda(local_rank, non_blocking=True)
-        y, y_lengths = y.cuda(local_rank, non_blocking=True), y_lengths.cuda(
-            local_rank, non_blocking=True
-        )
-        speakers = speakers.cuda(local_rank, non_blocking=True)
-        tone = tone.cuda(local_rank, non_blocking=True)
-        language = language.cuda(local_rank, non_blocking=True)
-        bert = bert.cuda(local_rank, non_blocking=True)
-        style_vec = style_vec.cuda(local_rank, non_blocking=True)
+        _nb = _DEVICE == "cuda"  # non_blocking only effective with CUDA
+        x, x_lengths = x.to(_DEVICE, non_blocking=_nb), x_lengths.to(_DEVICE, non_blocking=_nb)
+        spec, spec_lengths = spec.to(_DEVICE, non_blocking=_nb), spec_lengths.to(_DEVICE, non_blocking=_nb)
+        y, y_lengths = y.to(_DEVICE, non_blocking=_nb), y_lengths.to(_DEVICE, non_blocking=_nb)
+        speakers = speakers.to(_DEVICE, non_blocking=_nb)
+        tone = tone.to(_DEVICE, non_blocking=_nb)
+        language = language.to(_DEVICE, non_blocking=_nb)
+        bert = bert.to(_DEVICE, non_blocking=_nb)
+        style_vec = style_vec.to(_DEVICE, non_blocking=_nb)
 
         with autocast(enabled=hps.train.bf16_run, dtype=torch.bfloat16):
             (
@@ -1041,7 +1039,7 @@ def train_and_evaluate(
             pbar.update()
 
     gc.collect()
-    torch.cuda.empty_cache()
+    torch.cuda.empty_cache() if torch.cuda.is_available() else None
     if pbar is None and rank == 0:
         logger.info(f"====> Epoch: {epoch}, step: {global_step}")
 
@@ -1066,14 +1064,14 @@ def evaluate(hps, generator, eval_loader, writer_eval):
             bert,
             style_vec,
         ) in enumerate(eval_loader):
-            x, x_lengths = x.cuda(), x_lengths.cuda()
-            spec, spec_lengths = spec.cuda(), spec_lengths.cuda()
-            y, y_lengths = y.cuda(), y_lengths.cuda()
-            speakers = speakers.cuda()
-            bert = bert.cuda()
-            tone = tone.cuda()
-            language = language.cuda()
-            style_vec = style_vec.cuda()
+            x, x_lengths = x.to(_DEVICE), x_lengths.to(_DEVICE)
+            spec, spec_lengths = spec.to(_DEVICE), spec_lengths.to(_DEVICE)
+            y, y_lengths = y.to(_DEVICE), y_lengths.to(_DEVICE)
+            speakers = speakers.to(_DEVICE)
+            bert = bert.to(_DEVICE)
+            tone = tone.to(_DEVICE)
+            language = language.to(_DEVICE)
+            style_vec = style_vec.to(_DEVICE)
             for use_sdp in [True, False]:
                 y_hat, attn, mask, *_ = generator.module.infer(
                     x,
