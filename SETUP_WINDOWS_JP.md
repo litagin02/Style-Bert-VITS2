@@ -10,7 +10,7 @@ Style-Bert-VITS2 の環境構築手順をまとめたものです。
 | OS | Windows 11 Pro |
 | GPU | AMD Radeon（NVIDIA GPU なし → CPU推論） |
 | Python | 3.10.11（`C:\Python310` にインストール） |
-| PyTorch | 2.3.1+cpu |
+| PyTorch | 2.6.0+cpu |
 | transformers | 4.57.x |
 
 ---
@@ -95,7 +95,7 @@ AMD GPU でも CUDA は使えないため、CPU 推論になります（音声�
 
 ```powershell
 uv pip install --python .\venv\Scripts\python.exe `
-    "torch==2.3.1" "torchaudio==2.3.1" `
+    "torch==2.6.0" "torchaudio==2.6.0" `
     --index-url https://download.pytorch.org/whl/cpu
 ```
 
@@ -122,7 +122,7 @@ uv pip install --python .\venv\Scripts\python.exe faster-whisper
 # soxr: transformers 4.57+ が必要とするが requirements.txt に未記載
 uv pip install --python .\venv\Scripts\python.exe soxr
 
-# transformers: torch 2.3.1 と互換性のある 4.x 系に固定
+# transformers: 4.x 系（torch 2.6 との互換性あり、CVE-2025-32434 セキュリティチェック対応済み）
 uv pip install --python .\venv\Scripts\python.exe "transformers>=4.40,<5.0"
 ```
 

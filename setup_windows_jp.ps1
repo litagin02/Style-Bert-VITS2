@@ -119,15 +119,15 @@ if ($needRebuild) {
 Write-Step "PyTorch (CPU)"
 
 $torchOk = & $VenvPython -c "import torch; print(torch.__version__)" 2>&1
-if ($torchOk -match "2\.[34]") {
+if ($torchOk -match "2\.[6-9]") {
     Write-OK "torch $torchOk already installed"
 } else {
-    Write-Host "Installing torch 2.3.1+cpu and torchaudio..."
+    Write-Host "Installing torch 2.6.0+cpu and torchaudio..."
     uv pip install --python $VenvPython `
-        "torch==2.3.1" "torchaudio==2.3.1" `
+        "torch==2.6.0" "torchaudio==2.6.0" `
         --index-url https://download.pytorch.org/whl/cpu
     if ($LASTEXITCODE -ne 0) { Write-Fail "PyTorch install failed"; exit 1 }
-    Write-OK "torch 2.3.1+cpu installed"
+    Write-OK "torch 2.6.0+cpu installed"
 }
 
 # ---------------------------------------------------------------------------

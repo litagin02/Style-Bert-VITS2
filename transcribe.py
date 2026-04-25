@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
+import torch
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
@@ -125,8 +126,10 @@ if __name__ == "__main__":
         "--language", type=str, default="ja", choices=["ja", "en", "zh"]
     )
     parser.add_argument("--model", type=str, default="large-v3")
-    parser.add_argument("--device", type=str, default="cuda")
-    parser.add_argument("--compute_type", type=str, default="bfloat16")
+    _default_device = "cuda" if torch.cuda.is_available() else "cpu"
+    _default_compute = "bfloat16" if torch.cuda.is_available() else "int8"
+    parser.add_argument("--device", type=str, default=_default_device)
+    parser.add_argument("--compute_type", type=str, default=_default_compute)
     parser.add_argument("--use_hf_whisper", action="store_true")
     parser.add_argument("--hf_repo_id", type=str, default="")
     parser.add_argument("--batch_size", type=int, default=16)
@@ -146,6 +149,13 @@ if __name__ == "__main__":
     language: str = args.language
     device: str = args.device
     compute_type: str = args.compute_type
+    # bfloat16/float16 are not supported by ctranslate2 on CPU
+    _cpu_incompatible = {"float16", "bfloat16", "int8_float16", "int8_bfloat16"}
+    if device == "cpu" and compute_type in _cpu_incompatible:
+        logger.warning(
+            f"compute_type '{compute_type}' is not supported on CPU. Falling back to 'int8'."
+        )
+        compute_type = "int8"
     batch_size: int = args.batch_size
     num_beams: int = args.num_beams
     no_repeat_ngram_size: int = args.no_repeat_ngram_size
