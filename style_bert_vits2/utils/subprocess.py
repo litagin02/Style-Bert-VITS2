@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 from typing import Any, Callable
@@ -21,12 +22,16 @@ def run_script_with_log(
     """
 
     logger.info(f"Running: {' '.join(cmd)}")
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
     result = subprocess.run(
         [sys.executable] + cmd,
         stdout=SAFE_STDOUT,
         stderr=subprocess.PIPE,
         text=True,
         encoding="utf-8",
+        errors="replace",
+        env=env,
         check=False,
     )
     if result.returncode != 0:

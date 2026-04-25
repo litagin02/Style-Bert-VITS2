@@ -1,8 +1,12 @@
 import gradio as gr
+import torch
 
 from style_bert_vits2.constants import GRADIO_THEME
 from style_bert_vits2.logging import logger
 from style_bert_vits2.utils.subprocess import run_script_with_log
+
+_CUDA_AVAILABLE = torch.cuda.is_available()
+_DEFAULT_COMPUTE_TYPE = "bfloat16" if _CUDA_AVAILABLE else "int8"
 
 
 def do_slice(
@@ -202,7 +206,7 @@ def create_dataset_app() -> gr.Blocks:
                         "float32",
                     ],
                     label="計算精度",
-                    value="bfloat16",
+                    value=_DEFAULT_COMPUTE_TYPE,
                     visible=True,
                 )
                 batch_size = gr.Slider(
