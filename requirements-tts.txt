@@ -1,0 +1,47 @@
+# TTS inference-only requirements for Style-Bert-VITS2 API server
+# Stripped from the full requirements.txt — removes STT, training, and editor deps.
+# torch and torchaudio are installed SEPARATELY (CUDA 11.8 index) in the Dockerfile.
+
+# --- Core NLP (multilingual text processing) ---
+cmudict
+cn2an
+g2p_en
+inflect
+jieba
+num2words
+pypinyin
+
+# --- Japanese phonemization (prebuilt manylinux wheels, no C compiler needed) ---
+pyopenjtalk-dict
+
+# --- Model loading & inference ---
+# transformers pinned <4.49 because torch is pinned <2.4 (Style-Bert-VITS2 model compatibility).
+# transformers >=4.49 blocks torch.load() for torch<2.6 due to CVE-2025-32434,
+# which crashes the server when loading BERT pytorch_model.bin files.
+# See: https://nvd.nist.gov/vuln/detail/CVE-2025-32434
+accelerate
+huggingface_hub
+numpy<2
+onnx
+onnxconverter-common
+onnxruntime-gpu
+onnxsim-prebuilt
+protobuf==4.25
+safetensors<0.7
+transformers>=4.40,<4.49
+
+# --- Audio processing ---
+pyworld-prebuilt
+scipy
+
+# --- Web server ---
+fastapi
+uvicorn[standard]
+
+# --- Utilities ---
+GPUtil
+loguru
+psutil
+pydantic
+PyYAML
+numba

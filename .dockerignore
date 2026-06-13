@@ -1,18 +1,52 @@
-# Dockerfile.deploy用の.dockerignore
-# 日本語のJP-Extraのエディター稼働のみに必要なファイルを指定する
+# .dockerignore for TTS inference Dockerfile
+# Keeps build context small by excluding unnecessary files.
+# Model directories are downloaded by initialize.py during build —
+# excluding them here avoids sending ~8 GB of local files as build context.
 
-*
+# Version control
+.git/
+.gitattributes
 
-!/style_bert_vits2/
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
 
-!/bert/deberta-v2-large-japanese-char-wwm/
-!/configs/
-!/dict_data/default.csv
-!/model_assets/
-!/static/
+# --- Model weight files (large binaries downloaded by initialize.py during build) ---
+# Keep bert/ directory structure and config files (~3 MB) so initialize.py knows what to download.
+# Only exclude the large weight files (~5.3 GB total).
+bert/**/pytorch_model.bin
+bert/**/model_fp16.onnx
+bert/**/.cache/
 
-!/config.py
-!/default_config.yml
-!/initialize.py
-!/requirements.txt
-!/server_editor.py
+# Voice models (~1.5 GB) — downloaded by initialize.py, persisted via Docker volume at runtime
+model_assets/
+# Training-only models (NOT needed for inference)
+pretrained/
+pretrained_jp_extra/
+slm/
+
+# Training data (not needed for inference)
+Data/
+
+# Windows batch files (not usable in Linux container)
+*.bat
+
+# Development / docs / notebooks
+.vscode/
+.python-version
+colab.ipynb
+docs/
+*.md
+LICENSE
+LGPL_LICENSE
+
+# Other Dockerfiles (not needed inside the build)
+Dockerfile.train
+Dockerfile.deploy
