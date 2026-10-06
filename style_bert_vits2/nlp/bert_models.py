@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import gc
 import time
-from typing import TYPE_CHECKING, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
+from packaging.version import Version
 from transformers import (
     AutoModelForMaskedLM,
     AutoTokenizer,
@@ -23,6 +24,7 @@ from transformers import (
     PreTrainedTokenizer,
     PreTrainedTokenizerFast,
 )
+from transformers import __version__ as transformers_version
 
 from style_bert_vits2.constants import DEFAULT_BERT_MODEL_PATHS, Languages
 from style_bert_vits2.logging import logger
@@ -41,6 +43,28 @@ __loaded_tokenizers: dict[
     Languages,
     Union[PreTrainedTokenizer, PreTrainedTokenizerFast, DebertaV2TokenizerFast],
 ] = {}
+
+
+def __get_float32_dtype_kwargs() -> dict[str, Any]:
+    """
+    from_pretrained() に BERT モデルを float32 で読み込ませるための引数を返す。
+
+    transformers 5 以降は from_pretrained() の dtype のデフォルトが "auto" になり、
+    config.json に記載された dtype (日本語 BERT は float16) のままで読み込まれてしまう。
+    transformers 4 以前は dtype 未指定だと float32 で読み込まれていたため、
+    float16 の BERT 特徴量が float32 の TTS モデルに渡され、CPU 推論時に
+    "Input type (c10::Half) and bias type (float) should be the same" で失敗する。
+    transformers の版に依らず従来と同じ float32 で読み込むよう、明示的に指定する。
+
+    transformers 4.56 で torch_dtype が dtype に改名された (旧名は 5 以降も非推奨だが受け付けられる)。
+    それ未満の版では dtype を渡すと未知の引数として扱われるため、版によって引数名を切り替える。
+    """
+
+    import torch
+
+    if Version(transformers_version) >= Version("4.56.0"):
+        return {"dtype": torch.float32}
+    return {"torch_dtype": torch.float32}
 
 
 def load_model(
@@ -100,6 +124,7 @@ def load_model(
                 device_map=device_map,
                 cache_dir=cache_dir,
                 revision=revision,
+                **__get_float32_dtype_kwargs(),
             ),
         )
     else:
@@ -108,6 +133,7 @@ def load_model(
             device_map=device_map,
             cache_dir=cache_dir,
             revision=revision,
+            **__get_float32_dtype_kwargs(),
         )
     logger.info(
         f"Loaded the {language.name} BERT model from {pretrained_model_name_or_path} ({time.time() - start_time:.2f}s)"
