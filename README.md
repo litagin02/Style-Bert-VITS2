@@ -1,8 +1,7 @@
 # Style-Bert-VITS2（学習コア）
 
-**利用の際は必ず[お願いとデフォルトモデルの利用規約](/docs/TERMS_OF_USE.md)をお読みください。**
-
 [Style-Bert-VITS2](https://github.com/litagin02/Style-Bert-VITS2) のフォークで、**日本語・JP-Extra 一本化の学習コア**です。前処理〜学習（CLI）、推論ライブラリ、学習済みモデルの試聴GUIを提供します（学習曲線は TensorBoard で確認）。
+"お願いとデフォルトモデルの利用規約"もフォーク元Style-Bert-VITS2に準じます。
 
 - データセット作成（スライス・ASR・リサンプリング等）・評価・アプリとしての推論（エディター・APIサーバー）は本リポジトリでは扱いません。`style-bert-vits2` をライブラリとして依存する分離先リポジトリで利用してください
 - **言語は日本語のみ**です。英語はカタカナ入力が前提です（細かい読みは `dict_data/` のユーザー辞書で調整）
@@ -42,7 +41,3 @@ dict_data/          pyopenjtalk ユーザー辞書
 - [docs/FAQ.md](/docs/FAQ.md) — よくある質問
 - [docs/SPLIT_PLAN.md](/docs/SPLIT_PLAN.md) — 本コアの分割設計方針
 - `docs/upstream/` — フォーク元リポジトリのドキュメント（歴史・アーキテクチャ背景としての参照用）
-
-## Bert-VITS2 との関係
-
-JP-Extra のモデル構造を少し改造して使っています（詳細は [docs/upstream/Style-Bert-VITS2_en.md](/docs/upstream/Style-Bert-VITS2_en.md) 参照）。感情埋め込みは 256 次元の wespeaker 埋め込み＋単純な全結合層で、`style_vectors.npy` によりスタイルを連続的に指定できます。
